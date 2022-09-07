@@ -24,7 +24,7 @@ from pyomo.contrib.mpc.modeling.mhe_constructor import (
     construct_measurement_variables_constraints,
     construct_disturbed_model_constraints,
     activate_disturbed_constraints_based_on_original_constraints,
-    get_error_cost,
+    get_cost_from_error_variables,
 )
 from pyomo.contrib.mpc.modeling.cost_expressions import (
     get_tracking_cost_from_time_varying_setpoint,
@@ -142,7 +142,7 @@ def run_cstr_mhe(
             for idx in esti_blo.measurement_set
         ]
         # This cost function penalizes the square of the "error variables"
-        m_estimator.measurement_error_cost = get_error_cost(
+        m_estimator.measurement_error_cost = get_cost_from_error_variables(
             error_vars, m_estimator.sample_points
         )
     else:
@@ -178,7 +178,7 @@ def run_cstr_mhe(
         esti_blo.disturbance_variables[0, :]: 10.0,
         esti_blo.disturbance_variables[1, :]: 10.0,
     }
-    m_estimator.model_disturbance_cost = get_error_cost(
+    m_estimator.model_disturbance_cost = get_cost_from_error_variables(
         disturbance_vars, m_estimator.sample_points, weight_data=weights
     )
     ###

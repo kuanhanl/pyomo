@@ -122,14 +122,7 @@ def construct_disturbed_model_constraints(
     disturbance_var = Var(disturbance_set, sample_points, initialize=0.0)
 
     def disturbed_con_rule(m, index, i):
-        # try:
         con_ele = mod_constraints[index][i]
-        # except KeyError:
-        #     if i == 0:
-        #         # Assuem we're using an implicit time discretization.
-        #         return Constraint.Skip
-        #     else:
-        #         raise KeyError(i)
 
         if not con_ele.equality:
             raise RuntimeError(con_ele.name, " is not an equality constraint.")

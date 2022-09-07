@@ -15,11 +15,7 @@ import pyomo.contrib.mpc as mpc
 from pyomo.dae import ContinuousSet
 from pyomo.contrib.mpc.examples.cstr.run_mpc import get_steady_state_data
 from pyomo.contrib.mpc.interfaces.var_linker import DynamicVarLinker
-from pyomo.contrib.mpc.examples.cstr.model import (
-    create_instance,
-    _plot_time_indexed_variables,
-    _step_time_indexed_variables,
-)
+from pyomo.contrib.mpc.examples.cstr.model import create_instance
 from pyomo.contrib.mpc.modeling.mhe_constructor import (
     construct_measurement_variables_constraints,
     construct_disturbed_model_constraints,
@@ -355,24 +351,7 @@ def main():
     init_steady_target = mpc.ScalarData({"flow_in[*]": 0.3})
     init_data = get_steady_state_data(init_steady_target, tee=False)
 
-    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=True)
-    # m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=False)
-
-    # _plot_time_indexed_variables(
-    #     sim_data,
-    #     [m.conc[:, "A"], m.conc[:, "B"]],
-    #     show=True,
-    # )
-    # _plot_time_indexed_variables(
-    #     estimate_data,
-    #     [m.conc[:, "A"], m.conc[:, "B"]],
-    #     show=True,
-    # )
-    # _step_time_indexed_variables(
-    #     sim_data,
-    #     [m.flow_in[:]],
-    #     show=True,
-    # )
+    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=False)
 
     plot_states_estimates_from_data(
         sim_data,

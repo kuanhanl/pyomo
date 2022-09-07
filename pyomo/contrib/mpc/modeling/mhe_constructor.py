@@ -118,19 +118,23 @@ def construct_disturbed_model_constraints(
             ** original_constraint + disturbance == 0.0 **
 
     """
+
+    for con in mod_constraints:
+        for t in time:
+            con_ele = con[t]
+            if not con_ele.equality:
+                raise RuntimeError("Not an equality constraint: ", con_ele.name)
+
+            if con_ele.upper.value != 0.0 or con_ele.lower.value != 0.0:
+                raise RuntimeError(
+                    "Nonzero bound equality constraint: ", con_ele.name
+                )
+
     disturbance_set = Set(initialize=range(len(mod_constraints)))
     disturbance_var = Var(disturbance_set, sample_points, initialize=0.0)
 
     def disturbed_con_rule(m, index, i):
         con_ele = mod_constraints[index][i]
-
-        if not con_ele.equality:
-            raise RuntimeError(con_ele.name, " is not an equality constraint.")
-
-        if con_ele.upper.value != 0.0 or con_ele.lower.value != 0.0:
-            raise RuntimeError(con_ele_name, " is an equality but its bound "
-                               "is not zero.")
-
         spt = curr_sample_point(i, sample_points)
 
         return con_ele.body + disturbance_var[index, spt] == \

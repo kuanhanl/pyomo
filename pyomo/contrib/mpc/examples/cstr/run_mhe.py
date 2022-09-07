@@ -24,13 +24,11 @@ from pyomo.contrib.mpc.modeling.mhe_constructor import (
     construct_measurement_variables_constraints,
     construct_disturbed_model_constraints,
     activate_disturbed_constraints_based_on_original_constraints,
-    get_error_cost
+    get_error_cost,
 )
 from pyomo.contrib.mpc.modeling.cost_expressions import (
     get_tracking_cost_from_time_varying_setpoint,
 )
-
-import matplotlib.pyplot as plt
 
 
 def get_control_inputs(sample_time=2.0):
@@ -136,7 +134,7 @@ def run_cstr_mhe(
     # and model disturbances
     #
     # This flag toggles between two different objective formulations.
-    # I included it just to test that we can support both.
+    # I included it just to demonstrate that we can support both.
     error_var_objective = True
     if error_var_objective:
         error_vars = [
@@ -198,15 +196,6 @@ def run_cstr_mhe(
         for spt in m_estimator.sample_points:
             esti_blo.measurement_variables[index, spt].set_value(var[spt].value)
 
-    sim_t0 = 0.0
-
-    #
-    # Initialize data structure to hold results of "rolling horizon"
-    # simulation.
-    #
-    sim_data = plant_interface.get_data_at_time([sim_t0])
-    estimate_data = estimator_interface.get_data_at_time([sim_t0])
-
     #
     # Set up a model linker to send measurements to estimator to update
     # measurement variables
@@ -236,6 +225,16 @@ def run_cstr_mhe(
     # Load control input data for simulation
     #
     control_inputs = get_control_inputs()
+
+    sim_t0 = 0.0
+
+    #
+    # Initialize data structure to hold results of "rolling horizon"
+    # simulation.
+    #
+    sim_data = plant_interface.get_data_at_time([sim_t0])
+    estimate_data = estimator_interface.get_data_at_time([sim_t0])
+
 
     solver = pyo.SolverFactory("ipopt")
     non_initial_plant_time = list(m_plant.time)[1:]
@@ -282,7 +281,7 @@ def run_cstr_mhe(
         estimate_linker.transfer(tf_plant, last_sample_time)
 
         #
-        # Load inputs to estimator
+        # Load inputs into estimator
         #
         estimator_interface.load_data_at_time(
             current_control, last_sample_time
@@ -300,10 +299,6 @@ def run_cstr_mhe(
         estimator_data = estimator_interface.get_data_at_time([tf_estimator])
         # Shift time points from "estimator time" to "simulation time"
         estimator_data.shift_time_points(sim_tf-tf_estimator)
-
-        #
-        # Extend data structure of estimates
-        #
         estimate_data.concatenate(estimator_data)
 
         #
@@ -313,7 +308,7 @@ def run_cstr_mhe(
         estimator_spt_interface.shift_values_by_time(sample_time)
 
         #
-        # Re-initialize model to final values.
+        # Re-initialize plant model to final values.
         # This sets new initial conditions, including inputs.
         #
         plant_interface.copy_values_at_time(source_time=tf_plant)
@@ -336,6 +331,8 @@ def plot_states_estimates_from_data(
     estimates = estimate_data.get_data()
     from pyomo.contrib.mpc.data.series_data import get_indexed_cuid
     cuids = [get_indexed_cuid(name) for name in names]
+
+    import matplotlib.pyplot as plt
     for i, cuid in enumerate(cuids):
         fig, ax = plt.subplots()
         state_values = states[cuid]

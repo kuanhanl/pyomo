@@ -126,10 +126,8 @@ def construct_disturbed_model_constraints(
 
         if not con_ele.equality:
             raise RuntimeError(con_ele.name, " is not an equality constraint.")
-        if con_ele.lower.value != con_ele.upper.value:
-            raise RuntimeError(con_ele_name, " has different lower and upper "
-                               "bounds.")
-        if con_ele.upper.value != 0.0:
+
+        if con_ele.upper.value != 0.0 or con_ele.lower.value != 0.0:
             raise RuntimeError(con_ele_name, " is an equality but its bound "
                                "is not zero.")
 

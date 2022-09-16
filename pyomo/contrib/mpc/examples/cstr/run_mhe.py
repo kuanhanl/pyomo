@@ -235,6 +235,8 @@ def run_cstr_mhe(
     solver = pyo.SolverFactory("ipopt")
     non_initial_plant_time = list(m_plant.time)[1:]
     ts = sample_time + t0_estimator
+
+    add_noise_to_measurement = True
     for i in range(simulation_steps):
         # The starting point of this part of the simulation
         # in "real" time (rather than the model's time set)
@@ -267,7 +269,22 @@ def run_cstr_mhe(
         #
         tf_plant = m_plant.time.last()
         tf_estimator = m_estimator.time.last()
-        measurement_linker.transfer(tf_plant, tf_estimator)
+        if add_noise_to_measurement:
+            import random
+            noise_parameter = [0.5]
+            bound_list = [
+                (var[tf_plant].lb, var[tf_plant].ub)
+                for var in measured_variables_in_plant
+            ]
+            measurement_linker.transfer_with_noise(
+                noise_parameter,
+                random.gauss,
+                bound_list,
+                tf_plant,
+                tf_estimator,
+            )
+        else:
+            measurement_linker.transfer(tf_plant, tf_estimator)
 
         #
         # Initialize measured variables within the last sample time to
@@ -351,7 +368,7 @@ def main():
     init_steady_target = mpc.ScalarData({"flow_in[*]": 0.3})
     init_data = get_steady_state_data(init_steady_target, tee=False)
 
-    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=False)
+    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=True)
 
     plot_states_estimates_from_data(
         sim_data,

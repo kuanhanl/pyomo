@@ -13,6 +13,10 @@ from pyomo.contrib.mpc.interfaces.copy_values import (
     copy_values_at_time,
     _to_iterable,
     )
+from pyomo.contrib.mpc.modeling.noise import (
+    NoiseBoundOption,
+    apply_noise_with_bounds,
+    )
 from pyomo.common.collections import ComponentMap
 
 
@@ -85,16 +89,21 @@ class DynamicVarLinker(object):
             noise_params,
             noise_function,
             bound_list,
+            bound_option=NoiseBoundOption.DISCARD,
+            max_number_discards=5,
+            bound_push=0.0,
             ):
-        # TODO: replace this function with noise API (Can I used IDAES one?)
-        from idaes.apps.caprese.util import apply_noise_with_bounds
+
         noised_data = ComponentMap(
             (var, apply_noise_with_bounds(
-                                        val_list,
-                                        [noise_params[idx]]*len(val_list),
-                                        noise_function,
-                                        [bound_list[idx]]*len(val_list),
-                                        )
+                val_list=val_list,
+                noise_params=[noise_params[idx]]*len(val_list),
+                noise_function=noise_function,
+                bound_list=[bound_list[idx]]*len(val_list),
+                bound_option=bound_option,
+                max_number_discards=max_number_discards,
+                bound_push=bound_push,
+                )
             )
             for idx, (var, val_list) in enumerate(data.items())
         )
@@ -110,15 +119,14 @@ class DynamicVarLinker(object):
                 tvar[t_t].set_value(val)
 
     def transfer_with_noise(self,
-            t_source=None,
-            t_target=None,
             noise_params,
             noise_function,
             bound_list,
+            t_source=None,
+            t_target=None,
             ):
         t_source, t_target = self._check_t_source_t_target(t_source, t_target)
 
-        # Why do we need this conversion?
         t_source = list(_to_iterable(t_source))
         t_target = list(_to_iterable(t_target))
         if (len(t_source) != len(t_target)

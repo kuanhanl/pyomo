@@ -78,6 +78,7 @@ class DynamicVarLinker(object):
         )
 
     def extract_data_from_source_variables_at_time(self, t_source):
+        t_source = list(_to_iterable(t_source))
         data = ComponentMap(
             (var, [var[t].value for t in t_source])
             for var in self._source_variables
@@ -110,6 +111,7 @@ class DynamicVarLinker(object):
         return noised_data
 
     def load_data_to_target_variables_at_time(self, data, t_target):
+        t_target = list(_to_iterable(t_target))
         n_points = len(t_target)
         for svar, tvar in zip(self._source_variables, self._target_variables):
             val_list = data[svar]
@@ -122,6 +124,9 @@ class DynamicVarLinker(object):
             noise_params,
             noise_function,
             bound_list,
+            bound_option=NoiseBoundOption.DISCARD,
+            max_number_discards=5,
+            bound_push=0.0,
             t_source=None,
             t_target=None,
             ):
@@ -141,6 +146,9 @@ class DynamicVarLinker(object):
             data,
             noise_params,
             noise_function,
-            bound_list
+            bound_list,
+            bound_option,
+            max_number_discards,
+            bound_push,
         )
         self.load_data_to_target_variables_at_time(noised_data, t_target)

@@ -209,11 +209,11 @@ def run_cstr_mhe(
     )
 
     #
-    # Set up a model linker to send measurements to estimator to initialize
-    # measured variables
+    # Set up a model linker to initialize measured variables with measurements
+    # in estimator
     #
     estimate_linker = DynamicVarLinker(
-        measured_variables_in_plant,
+        flatten_measurements,
         measured_variables,
     )
 
@@ -291,7 +291,7 @@ def run_cstr_mhe(
         # current measurements
         #
         last_sample_time = list(m_estimator.time)[-ntfe_per_sample_estimator:]
-        estimate_linker.transfer(tf_plant, last_sample_time)
+        estimate_linker.transfer(tf_estimator, last_sample_time)
 
         #
         # Load inputs into estimator

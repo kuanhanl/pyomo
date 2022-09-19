@@ -51,7 +51,7 @@ class TestCSTRMHE(unittest.TestCase):
         initial_data = mpc.ScalarData({"flow_in[*]": 0.3})
         return get_steady_state_data(initial_data)
 
-    def test_mhe_simulation(self):
+    def test_mhe_simulation_wo_noise(self):
         initial_data = self._get_initial_data()
         sample_time = 2.0
         samples_per_horizon = 5
@@ -65,6 +65,7 @@ class TestCSTRMHE(unittest.TestCase):
             ntfe_per_sample_estimator=ntfe_per_sample,
             ntfe_plant=ntfe_plant,
             simulation_steps=simulation_steps,
+            apply_noise_to_measurement=False,
         )
 
         A_cuid = pyo.ComponentUID("conc[*,A]")
@@ -107,6 +108,68 @@ class TestCSTRMHE(unittest.TestCase):
         self.assertStructuredAlmostEqual(
             estimate_time_points, estimate_AB_data.get_time_points(), delta=1e-7
         )
+
+    def test_mhe_simulation_with_noise(self):
+        initial_data = self._get_initial_data()
+        sample_time = 2.0
+        samples_per_horizon = 5
+        ntfe_per_sample = 5
+        ntfe_plant = 5
+        simulation_steps = 5
+
+        N = 5
+        for _ in range(N):
+            m_plant, sim_data, estimate_data = run_cstr_mhe(
+                initial_data,
+                samples_per_estimator_horizon=samples_per_horizon,
+                sample_time=sample_time,
+                ntfe_per_sample_estimator=ntfe_per_sample,
+                ntfe_plant=ntfe_plant,
+                simulation_steps=simulation_steps,
+                apply_noise_to_measurement=True,
+            )
+
+            A_cuid = pyo.ComponentUID("conc[*,A]")
+            B_cuid = pyo.ComponentUID("conc[*,B]")
+
+            sim_time_points = [
+                sample_time/ntfe_plant * i
+                for i in range(simulation_steps*ntfe_plant + 1)
+            ]
+
+            sim_AB_data = sim_data.extract_variables([A_cuid, B_cuid])
+
+            pred_sim_data = {
+                A_cuid: self._pred_sim_A_data,
+                B_cuid: self._pred_sim_B_data
+            }
+
+            self.assertStructuredAlmostEqual(
+                pred_sim_data, sim_AB_data.get_data(), delta=1e-5
+            )
+            self.assertStructuredAlmostEqual(
+                sim_time_points, sim_AB_data.get_time_points(), delta=1e-7
+            )
+
+            estimate_time_points = [
+                sample_time * i
+                for i in range(simulation_steps+1)
+            ]
+
+            estimate_AB_data = estimate_data.extract_variables([A_cuid, B_cuid])
+
+            pred_estimate_data = {
+                A_cuid: self._pred_estimate_A_data,
+                B_cuid: self._pred_estimate_B_data
+            }
+
+            # Use slightly large tolerance when there is noise on measurements
+            self.assertStructuredAlmostEqual(
+                pred_estimate_data, estimate_AB_data.get_data(), delta=5e-2
+            )
+            self.assertStructuredAlmostEqual(
+                estimate_time_points, estimate_AB_data.get_time_points(), delta=1e-7
+            )
 
 
 if __name__ == "__main__":

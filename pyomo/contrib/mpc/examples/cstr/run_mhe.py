@@ -47,6 +47,7 @@ def run_cstr_mhe(
     ntfe_plant=5,
     simulation_steps=5,
     tee=False,
+    apply_noise_to_measurement=False,
 ):
     estimator_horizon = sample_time * samples_per_estimator_horizon
     ntfe = ntfe_per_sample_estimator * samples_per_estimator_horizon
@@ -236,7 +237,6 @@ def run_cstr_mhe(
     non_initial_plant_time = list(m_plant.time)[1:]
     ts = sample_time + t0_estimator
 
-    add_noise_to_measurement = True
     for i in range(simulation_steps):
         # The starting point of this part of the simulation
         # in "real" time (rather than the model's time set)
@@ -269,7 +269,7 @@ def run_cstr_mhe(
         #
         tf_plant = m_plant.time.last()
         tf_estimator = m_estimator.time.last()
-        if add_noise_to_measurement:
+        if apply_noise_to_measurement:
             import random
             noise_parameter = [0.5]
             bound_list = [
@@ -368,7 +368,9 @@ def main():
     init_steady_target = mpc.ScalarData({"flow_in[*]": 0.3})
     init_data = get_steady_state_data(init_steady_target, tee=False)
 
-    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=True)
+    m, sim_data, estimate_data = run_cstr_mhe(
+        init_data, tee=False, apply_noise_to_measurement=False
+    )
 
     plot_states_estimates_from_data(
         sim_data,

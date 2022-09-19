@@ -366,5 +366,6 @@ class TestVarLinker(unittest.TestCase):
             )
             self.assertEqual(m2.x4[t].value, 2.4)
 
+
 if __name__ == "__main__":
     unittest.main()

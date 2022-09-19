@@ -124,11 +124,11 @@ class DynamicVarLinker(object):
             noise_params,
             noise_function,
             bound_list,
+            t_source=None,
+            t_target=None,
             bound_option=NoiseBoundOption.DISCARD,
             max_number_discards=5,
             bound_push=0.0,
-            t_source=None,
-            t_target=None,
             ):
         t_source, t_target = self._check_t_source_t_target(t_source, t_target)
 

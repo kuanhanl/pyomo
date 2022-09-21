@@ -24,6 +24,9 @@
 from pyomo.common.collections import ComponentMap
 from pyomo.core.base.componentuid import ComponentUID
 from pyomo.core.base.expression import Expression
+from pyomo.core.base.param import Param
+from pyomo.core.base.set import Set
+from pyomo.core.base.var import Var
 
 from pyomo.contrib.mpc.data.series_data import get_indexed_cuid
 from pyomo.contrib.mpc.data.scalar_data import ScalarData
@@ -32,6 +35,33 @@ from pyomo.contrib.mpc.data.interval_data import IntervalData
 from pyomo.contrib.mpc.data.convert import (
     interval_to_series,
 )
+
+
+def get_parameters_from_variables(
+    variables,
+    time,
+    ctype=Param,
+):
+    n_var = len(variables)
+    init_dict = {
+        (i, t): var[t].value for i, var in enumerate(variables) for t in time
+    }
+    var_set, comp = _get_indexed_parameters(
+        n_var, time, ctype=ctype, initialize=init_dict
+    )
+    return var_set, comp
+
+
+def _get_indexed_parameters(n, time, ctype=Param, initialize=None):
+    range_set = Set(initialize=range(n))
+    if ctype is Param:
+        # Create a mutable parameter
+        comp = ctype(range_set, time, mutable=True, initialize=initialize)
+    elif ctype is Var:
+        # Create a fixed variables
+        comp = ctype(range_set, time, initialize=initialize)
+        comp.fix()
+    return range_set, comp
 
 
 def get_tracking_cost_from_constant_setpoint(

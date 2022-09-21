@@ -12,6 +12,7 @@
 from pyomo.dae.flatten import flatten_dae_components
 from pyomo.common.modeling import NOTSET
 from pyomo.core.base.var import Var
+from pyomo.core.base.param import Param
 from pyomo.core.base.expression import Expression
 from pyomo.core.base.componentuid import ComponentUID
 from pyomo.core.expr.numeric_expr import value as pyo_value
@@ -30,6 +31,7 @@ from pyomo.contrib.mpc.data.interval_data import IntervalData
 from pyomo.contrib.mpc.data.scalar_data import ScalarData
 from pyomo.contrib.mpc.modeling.cost_expressions import (
     get_tracking_cost_from_constant_setpoint,
+    get_tracking_cost_from_time_varying_setpoint,
 )
 from pyomo.contrib.mpc.modeling.input_constraints import (
     get_piecewise_constant_constraints,
@@ -395,6 +397,53 @@ class DynamicModelInterface(object):
             ]
         return get_tracking_cost_from_constant_setpoint(
             variables, time, setpoint_data, weight_data=weight_data
+        )
+
+    def get_tracking_cost_from_target_trajectory(
+        self,
+        target_data,
+        time=None,
+        variables=None,
+        weight_data=None,
+        context=None,
+    ):
+        if time is None:
+            time = self.time
+        if isinstance(target_data, (Var, Param, Expression)):
+            if variables is None:
+                raise RuntimeError(
+                    "Variables must be provided if we are using a Param or"
+                    " Expression as an argument"
+                )
+            target_data = TimeSeriesData.from_pyomo_components(
+                variables,
+                target_data,
+                time,
+                time_set=self.time,
+                context=context,
+            )
+        elif not isinstance(target_data, TimeSeriesData):
+            target_data = TimeSeriesData(*target_data, time_set=self.time)
+        if variables is None:
+            # Use variables provided by the target trajectory.
+            # NOTE: Nondeterministic order in Python < 3.7
+            variables = [
+                self.model.find_component(key)
+                for key in setpoint_data.get_data().keys()
+            ]
+        else:
+            # Variables were provided. These could be anything. Process them
+            # to get time-indexed variables on the model.
+            variables = [
+                self.model.find_component(
+                    get_indexed_cuid(var, (self.time,))
+                ) for var in variables
+            ]
+        return get_tracking_cost_from_time_varying_setpoint(
+            variables,
+            time,
+            target_data,
+            weight_data=weight_data,
         )
 
     def get_piecewise_constant_constraints(

@@ -24,6 +24,7 @@ from pyomo.contrib.mpc.modeling.mhe_constructor import (
 )
 from pyomo.contrib.mpc.modeling.cost_expressions import (
     get_tracking_cost_from_time_varying_setpoint,
+    get_parameters_from_variables,
 )
 
 
@@ -78,19 +79,13 @@ def run_cstr_mhe(
     m_estimator.estimation_block = pyo.Block()
     esti_blo = m_estimator.estimation_block
 
-    measured_variables = [
-        pyo.Reference(m_estimator.conc[:, "A"])
-    ]
-    measurement_info = construct_measurement_variables_constraints(
-        m_estimator.sample_points,
-        measured_variables,
+    measured_variables = [pyo.Reference(m_estimator.conc[:, "A"])]
+
+    meas_set, measurements = get_parameters_from_variables(
+        measured_variables, m_estimator.sample_points
     )
-    esti_blo.measurement_set = measurement_info[0]
-    esti_blo.measurement_variables = measurement_info[1]
-    # Measurement variables should be fixed all the time
-    esti_blo.measurement_variables.fix()
-    esti_blo.measurement_error_variables = measurement_info[2]
-    esti_blo.measurement_constraints = measurement_info[3]
+    m_estimator.measurement_set = meas_set
+    m_estimator.measurements = measurements
 
     #
     # Construct disturbed model constraints
@@ -129,36 +124,11 @@ def run_cstr_mhe(
     # Construct least square objective to minimize measurement errors
     # and model disturbances
     #
-    # This flag toggles between two different objective formulations.
-    # I included it just to demonstrate that we can support both.
-    error_var_objective = True
-    if error_var_objective:
-        error_vars = [
-            pyo.Reference(esti_blo.measurement_error_variables[idx, :])
-            for idx in esti_blo.measurement_set
-        ]
-        # This cost function penalizes the square of the "error variables"
-        m_estimator.measurement_error_cost = get_cost_from_error_variables(
-            error_vars, m_estimator.sample_points
-        )
-    else:
-        from pyomo.common.collections import ComponentMap
-        measurement_map = ComponentMap(
-            (var, [
-                esti_blo.measurement_variables[i, t]
-                for t in m_estimator.sample_points
-            ])
-            for i, var in enumerate(measured_variables)
-        )
-        setpoint_data = mpc.TimeSeriesData(
-            measurement_map, m_estimator.sample_points
-        )
-        # This cost function penalizes the difference between measurable
-        # estimates and their corresponding measurements.
-        error_cost = get_tracking_cost_from_time_varying_setpoint(
-            measured_variables, m_estimator.sample_points, setpoint_data
-        )
-        m_estimator.measurement_error_cost = error_cost
+    cost = estimator_spt_interface.get_tracking_cost_from_target_trajectory(
+        m_estimator.measurements,
+        variables=measured_variables,
+    )
+    m_estimator.measurement_error_cost = cost
 
     #
     # Construct disturbance cost expression
@@ -190,7 +160,7 @@ def run_cstr_mhe(
     #
     for index, var in enumerate(measured_variables):
         for spt in m_estimator.sample_points:
-            esti_blo.measurement_variables[index, spt].set_value(var[spt].value)
+            m_estimator.measurements[index, spt].set_value(var[spt].value)
 
     #
     # Set up a model linker to send measurements to estimator to update
@@ -200,8 +170,8 @@ def run_cstr_mhe(
                                    for var in measured_variables
     ]
     flatten_measurements = [
-        pyo.Reference(esti_blo.measurement_variables[idx, :])
-        for idx in esti_blo.measurement_set
+        pyo.Reference(m_estimator.measurements[idx, :])
+        for idx in m_estimator.measurement_set
     ]
     measurement_linker = DynamicVarLinker(
         measured_variables_in_plant,

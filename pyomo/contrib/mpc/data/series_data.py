@@ -10,6 +10,7 @@
 #  ___________________________________________________________________________
 
 from collections import namedtuple
+from pyomo.common.collections import ComponentMap
 from pyomo.core.expr.numvalue import value as pyo_value
 from pyomo.contrib.mpc.data.find_nearest_index import (
     find_nearest_index,
@@ -33,6 +34,18 @@ class TimeSeriesData(_DynamicDataBase):
     variables.
 
     """
+
+    @classmethod
+    def from_pyomo_components(
+        cls, keys, values, time, time_set=None, context=None
+    ):
+        # We assume values is an indexed Variable, Param, or Expression
+        # indexed by integer indices into the list of keys (variables)
+        # and the time set.
+        data = ComponentMap([
+            (var, [values[i, t] for t in time]) for i, var in enumerate(keys)
+        ])
+        return cls(data, time, time_set=time_set, context=context)
 
     def __init__(self, data, time, time_set=None, context=None):
         """

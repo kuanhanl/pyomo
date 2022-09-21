@@ -83,10 +83,10 @@ class TestCSTRMHE(unittest.TestCase):
         }
 
         self.assertStructuredAlmostEqual(
-            pred_sim_data, sim_AB_data.get_data(), delta=1e-5
+            pred_sim_data, sim_AB_data.get_data(), reltol=1e-2
         )
         self.assertStructuredAlmostEqual(
-            sim_time_points, sim_AB_data.get_time_points(), delta=1e-7
+            sim_time_points, sim_AB_data.get_time_points(), reltol=1e-2
         )
 
         estimate_time_points = [
@@ -102,10 +102,10 @@ class TestCSTRMHE(unittest.TestCase):
         }
 
         self.assertStructuredAlmostEqual(
-            pred_estimate_data, estimate_AB_data.get_data(), delta=1e-5
+            pred_estimate_data, estimate_AB_data.get_data(), reltol=1e-2
         )
         self.assertStructuredAlmostEqual(
-            estimate_time_points, estimate_AB_data.get_time_points(), delta=1e-7
+            estimate_time_points, estimate_AB_data.get_time_points(), reltol=1e-2
         )
 
 

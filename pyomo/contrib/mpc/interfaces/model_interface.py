@@ -9,11 +9,15 @@
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
 
-from pyomo.dae.flatten import flatten_dae_components
+from pyomo.dae.flatten import (
+    flatten_dae_components,
+    slice_component_along_sets,
+)
 from pyomo.common.modeling import NOTSET
 from pyomo.core.base.var import Var
 from pyomo.core.base.param import Param
 from pyomo.core.base.expression import Expression
+from pyomo.core.base.component import Component
 from pyomo.core.base.componentuid import ComponentUID
 from pyomo.core.expr.numeric_expr import value as pyo_value
 
@@ -32,6 +36,7 @@ from pyomo.contrib.mpc.data.scalar_data import ScalarData
 from pyomo.contrib.mpc.modeling.cost_expressions import (
     get_tracking_cost_from_constant_setpoint,
     get_tracking_cost_from_time_varying_setpoint,
+    get_constraint_residual_expression,
 )
 from pyomo.contrib.mpc.modeling.input_constraints import (
     get_piecewise_constant_constraints,
@@ -350,6 +355,18 @@ class DynamicModelInterface(object):
             for i, t in enumerate(self.time):
                 var[t].set_value(new_values[i])
 
+    def slice_components(self, components):
+        if isinstance(components, Component):
+            components = (components,)
+        slices = []
+        for comp in components:
+            slices.extend(
+                slc for idx, slc in slice_component_along_sets(
+                    comp, (self.time,)
+                )
+            )
+        return slices
+
     def get_tracking_cost_from_constant_setpoint(
         self, setpoint_data, time=None, variables=None, weight_data=None
     ):
@@ -494,4 +511,15 @@ class DynamicModelInterface(object):
             self.time,
             sample_points,
             use_next=use_next,
+        )
+
+    def get_constraint_residual_expression(
+        self, constraints, weight_data=None,
+    ):
+        cuids = [
+            get_indexed_cuid(con, (self.time,)) for con in constraints
+        ]
+        constraints = [self.model.find_component(cuid) for cuid in cuids]
+        return get_constraint_residual_expression(
+            constraints, self.time, weight_data=weight_data,
         )

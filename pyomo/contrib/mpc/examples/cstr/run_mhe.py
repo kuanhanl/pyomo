@@ -25,6 +25,7 @@ from pyomo.contrib.mpc.modeling.mhe_constructor import (
 from pyomo.contrib.mpc.modeling.cost_expressions import (
     get_tracking_cost_from_time_varying_setpoint,
     get_parameters_from_variables,
+    get_constraint_residual_expression,
 )
 
 
@@ -90,28 +91,24 @@ def run_cstr_mhe(
     #
     # Construct disturbed model constraints
     #
-    flatten_conc_diff_equ = [
-        pyo.Reference(m_estimator.conc_diff_eqn[:,idx])
-        for idx in m_estimator.comp
+    relaxed_constraints = [
+        m_estimator.conc_diff_eqn[:, idx] for idx in m_estimator.comp
     ]
-    model_constraints_to_be_disturbed = flatten_conc_diff_equ
+    weight_data = {key: 10.0 for key in relaxed_constraints}
 
-    model_disturbance_info = construct_disturbed_model_constraints(
-        m_estimator.time,
-        m_estimator.sample_points,
-        model_constraints_to_be_disturbed,
+    resid_set, resid = estimator_interface.get_constraint_residual_expression(
+        relaxed_constraints, weight_data=weight_data,
     )
-    esti_blo.disturbance_set = model_disturbance_info[0]
-    esti_blo.disturbance_variables = model_disturbance_info[1]
-    esti_blo.disturbed_constraints = model_disturbance_info[2]
-
-    activate_disturbed_constraints_based_on_original_constraints(
-        m_estimator.time,
-        m_estimator.sample_points,
-        esti_blo.disturbance_variables,
-        model_constraints_to_be_disturbed,
-        esti_blo.disturbed_constraints,
+    m_estimator.disturbance_set = resid_set
+    m_estimator.residual_expr = resid
+    _, pwc_con = estimator_interface.get_piecewise_constant_constraints(
+        estimator_interface.slice_components(m_estimator.residual_expr),
+        sample_points,
     )
+    m_estimator.piecewise_constant_residual_constraints = pwc_con
+    # Deactivate original differential equations:
+    for con in relaxed_constraints:
+        con.deactivate()
 
     #
     # Make interface w.r.t. sample points
@@ -130,37 +127,14 @@ def run_cstr_mhe(
     )
     m_estimator.measurement_error_cost = cost
 
-    #
-    # Construct disturbance cost expression
-    #
-    disturbance_vars = [
-        pyo.Reference(esti_blo.disturbance_variables[idx, :])
-        for idx in esti_blo.disturbance_set
-    ]
-
-    # We know what order we sent constraints to the disturbance constraint
-    # function, so we know which indices correspond to which equations
-    weights = {
-        esti_blo.disturbance_variables[0, :]: 10.0,
-        esti_blo.disturbance_variables[1, :]: 10.0,
-    }
-    m_estimator.model_disturbance_cost = get_cost_from_error_variables(
-        disturbance_vars, m_estimator.sample_points, weight_data=weights
-    )
-    ###
-
-    m_estimator.squred_error_disturbance_objective = pyo.Objective(
-        expr=(sum(m_estimator.measurement_error_cost.values()) +
-              sum(m_estimator.model_disturbance_cost.values())
-              )
-    )
-
-    #
-    # Initialize measurements to initial values of measured variables
-    #
-    for index, var in enumerate(measured_variables):
-        for spt in m_estimator.sample_points:
-            m_estimator.measurements[index, spt].set_value(var[spt].value)
+    m_estimator.squred_error_disturbance_objective = pyo.Objective(expr=(
+        sum(m_estimator.measurement_error_cost.values())
+        + sum(
+            m_estimator.residual_expr[i, t]
+            for i in m_estimator.disturbance_set
+            for t in sample_points
+        )
+    ))
 
     #
     # Set up a model linker to send measurements to estimator to update

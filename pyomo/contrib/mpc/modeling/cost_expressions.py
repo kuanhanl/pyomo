@@ -27,6 +27,7 @@ from pyomo.core.base.expression import Expression
 from pyomo.core.base.param import Param
 from pyomo.core.base.set import Set
 from pyomo.core.base.var import Var
+from pyomo.core.expr.logical_expr import EqualityExpression
 
 from pyomo.contrib.mpc.data.series_data import get_indexed_cuid
 from pyomo.contrib.mpc.data.scalar_data import ScalarData
@@ -276,3 +277,52 @@ def get_tracking_cost_from_time_varying_setpoint(
         return sum(cost[t] for cost in tracking_costs)
     tracking_cost = Expression(time, rule=tracking_rule)
     return tracking_cost
+
+
+def get_constraint_residual_expression(
+    constraints,
+    time,
+    weight_data=None,
+    # TODO: Option for norm (including no norm)
+):
+    if weight_data is None:
+        weight_data = ScalarData(
+            ComponentMap((var, 1.0) for con in constraints)
+        )
+    if not isinstance(weight_data, ScalarData):
+        weight_data = ScalarData(weight_data)
+    for con in constraints:
+        if not weight_data.contains_key(con):
+            raise KeyError(
+                "Tracking weight does not contain a key for"
+                " constraint %s" % con
+            )
+    n_con = len(constraints)
+    con_set = Set(initialize=range(n_con))
+    resid_expr_list = []
+    for con in constraints:
+        resid_expr_dict = {}
+        for t in time:
+            expr = con[t].expr
+            if isinstance(expr, EqualityExpression):
+                resid_expr_dict[t] = (con[t].body - con[t].upper)
+            elif con.upper is None:
+                resid_expr_dict[t] = (con[t].lower - con[t].body)
+            elif con.lower is None:
+                resid_expr_dict[t] = (con[t].body - con[t].upper)
+            else:
+                raise RuntimeError(
+                    "Cannot construct a residual expression from a ranged"
+                    " inequality. Error encountered processing the expression"
+                    " of constraint %s" % con[t].name
+                )
+        resid_expr_list.append(resid_expr_dict)
+    # NOTE: In KH's implementation, using error vars enforces that constraint
+    # residuals are constant throughout a sampling period. Is this necessary?
+    # Supposing that it is, we can achieve the same thing by imposing piecewise
+    # constant constraints on these expressions.
+    weights = [weight_data.get_data_from_key(con) for con in constraints]
+    def resid_expr_rule(m, i, t):
+        return weights[i]*resid_expr_list[i][t]**2
+    resid_expr = Expression(con_set, time, rule=resid_expr_rule)
+    return con_set, resid_expr

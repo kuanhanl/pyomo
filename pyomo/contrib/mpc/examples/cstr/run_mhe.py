@@ -190,7 +190,7 @@ def run_cstr_mhe(
         #
         # Solve plant model to simulate
         #
-        res = solver.solve(m_plant, tee=tee)
+        res = solver.solve(m_plant, tee=False)
         pyo.assert_optimal_termination(res)
 
         #
@@ -278,7 +278,7 @@ def plot_states_estimates_from_data(
         ax.legend()
 
         if show:
-            fig.show()
+            plt.show()
         if save:
             if fname is None:
                 fname = "state_estimate%s.png" % i
@@ -289,12 +289,13 @@ def main():
     init_steady_target = mpc.ScalarData({"flow_in[*]": 0.3})
     init_data = get_steady_state_data(init_steady_target, tee=False)
 
-    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=False)
+    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=True)
 
     plot_states_estimates_from_data(
         sim_data,
         estimate_data,
         [m.conc[:, "A"], m.conc[:, "B"]],
+        show=True,
     )
 
 

@@ -21,10 +21,10 @@ from pyomo.contrib.mpc.examples.cstr.model import (
 def get_steady_state_data(target, tee=False):
     m = create_instance(dynamic=False)
     interface = mpc.DynamicModelInterface(m, m.time)
-    m.tracking_cost = interface.get_tracking_cost_from_constant_setpoint(
-        target
-    )
-    m.objective = pyo.Objective(expr=m.tracking_cost[0])
+    var_set, tr_cost = interface.get_penalty_from_target(target)
+    m.target_set = var_set
+    m.tracking_cost = tr_cost
+    m.objective = pyo.Objective(expr=sum(m.tracking_cost[:, 0]))
     m.flow_in[:].unfix()
     solver = pyo.SolverFactory("ipopt")
     solver.solve(m, tee=tee)
@@ -44,9 +44,7 @@ def run_cstr_mpc(
     controller_horizon = sample_time * samples_per_controller_horizon
     ntfe = ntfe_per_sample_controller * samples_per_controller_horizon
     m_controller = create_instance(horizon=controller_horizon, ntfe=ntfe)
-    controller_interface = mpc.DynamicModelInterface(
-        m_controller, m_controller.time
-    )
+    controller_interface = mpc.DynamicModelInterface(m_controller, m_controller.time)
     t0_controller = m_controller.time.first()
 
     m_plant = create_instance(horizon=sample_time, ntfe=ntfe_plant)
@@ -60,27 +58,28 @@ def run_cstr_mpc(
     # Add objective to controller model
     #
     setpoint_variables = [m_controller.conc[:, "A"], m_controller.conc[:, "B"]]
-    tr_cost = controller_interface.get_tracking_cost_from_constant_setpoint(
-        setpoint_data,
-        variables=setpoint_variables,
+    vset, tr_cost = controller_interface.get_penalty_from_target(
+        setpoint_data, variables=setpoint_variables
     )
+    m_controller.setpoint_set = vset
     m_controller.tracking_cost = tr_cost
-    m_controller.objective = pyo.Objective(expr=sum(
-        m_controller.tracking_cost[t]
-        for t in m_controller.time if t != m_controller.time.first()
-    ))
+    m_controller.objective = pyo.Objective(
+        expr=sum(
+            m_controller.tracking_cost[i, t]
+            for i in m_controller.setpoint_set
+            for t in m_controller.time
+            if t != m_controller.time.first()
+        )
+    )
 
     #
     # Unfix input in controller model
     #
     m_controller.flow_in[:].unfix()
     m_controller.flow_in[t0_controller].fix()
-    sample_points = [
-        i*sample_time for i in range(samples_per_controller_horizon+1)
-    ]
+    sample_points = [i * sample_time for i in range(samples_per_controller_horizon + 1)]
     input_set, pwc_con = controller_interface.get_piecewise_constant_constraints(
-        [m_controller.flow_in],
-        sample_points,
+        [m_controller.flow_in], sample_points
     )
     m_controller.input_set = input_set
     m_controller.pwc_con = pwc_con
@@ -99,7 +98,7 @@ def run_cstr_mpc(
     for i in range(simulation_steps):
         # The starting point of this part of the simulation
         # in "real" time (rather than the model's time set)
-        sim_t0 = i*sample_time
+        sim_t0 = i * sample_time
 
         #
         # Solve controller model to get inputs
@@ -147,16 +146,8 @@ def main():
 
     m, sim_data = run_cstr_mpc(init_data, setpoint_data, tee=False)
 
-    _plot_time_indexed_variables(
-        sim_data,
-        [m.conc[:, "A"], m.conc[:, "B"]],
-        show=True,
-    )
-    _step_time_indexed_variables(
-        sim_data,
-        [m.flow_in[:]],
-        show=True,
-    )
+    _plot_time_indexed_variables(sim_data, [m.conc[:, "A"], m.conc[:, "B"]], show=True)
+    _step_time_indexed_variables(sim_data, [m.flow_in[:]], show=True)
 
 
 if __name__ == "__main__":

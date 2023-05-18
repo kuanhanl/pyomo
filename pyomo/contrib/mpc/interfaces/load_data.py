@@ -17,13 +17,12 @@ from pyomo.contrib.mpc.data.find_nearest_index import (
 
 
 def _raise_invalid_cuid(cuid, model):
-    raise RuntimeError(
-        "Cannot find a component %s on block %s" % (cuid, model)
-    )
+    raise RuntimeError("Cannot find a component %s on block %s" % (cuid, model))
 
 
 def load_data_from_scalar(data, model, time):
-    """
+    """A function to load ScalarData into a model
+
     Arguments
     ---------
     data: ScalarData
@@ -32,6 +31,7 @@ def load_data_from_scalar(data, model, time):
 
     """
     data = data.get_data()
+    t_iter = time if _is_iterable(time) else (time,)
     for cuid, val in data.items():
         var = model.find_component(cuid)
         if var is None:
@@ -39,13 +39,16 @@ def load_data_from_scalar(data, model, time):
         # TODO: Time points should probably use find_nearest_index
         # This will have to happen in the calling function, as data
         # doesn't have a list of time points to check.
-        t_iter = time if _is_iterable(time) else (time,)
-        for t in t_iter:
-            var[t].set_value(val)
+        if var.is_indexed():
+            for t in t_iter:
+                var[t].set_value(val)
+        else:
+            var.set_value(val)
 
 
 def load_data_from_series(data, model, time, tolerance=0.0):
-    """
+    """A function to load TimeSeriesData into a model
+
     Arguments
     ---------
     data: TimeSeriesData
@@ -63,7 +66,7 @@ def load_data_from_series(data, model, time, tolerance=0.0):
             raise RuntimeError("Time point %s not found time set" % t)
     if len(time_list) != len(data.get_time_points()):
         raise RuntimeError(
-            "TimeSeriesData object and model must must have same number"
+            "TimeSeriesData object and model must have same number"
             " of time points to load data from series"
         )
     data = data.get_data()
@@ -105,20 +108,12 @@ def load_data_from_interval(
     exclude_right_endpoint: Bool
 
     """
-    if (
-        prefer_left
-        and exclude_right_endpoint
-        and not exclude_left_endpoint
-    ):
+    if prefer_left and exclude_right_endpoint and not exclude_left_endpoint:
         raise RuntimeError(
             "Cannot use prefer_left=True with exclude_left_endpoint=False"
             " and exclude_right_endpoint=True."
         )
-    elif (
-        not prefer_left
-        and exclude_left_endpoint
-        and not exclude_right_endpoint
-    ):
+    elif not prefer_left and exclude_left_endpoint and not exclude_right_endpoint:
         raise RuntimeError(
             "Cannot use prefer_left=False with exclude_left_endpoint=True"
             " and exclude_right_endpoint=False."
@@ -130,7 +125,8 @@ def load_data_from_interval(
     idx_list = [
         find_nearest_interval_index(
             intervals, t, tolerance=tolerance, prefer_left=prefer_left
-        ) for t in time
+        )
+        for t in time
     ]
     left_endpoint_indices = [
         # index of interval which t is the left endpoint of
@@ -162,7 +158,8 @@ def load_data_from_interval(
             # do not load a value at t.
             idx_list[i] = None
         elif (
-            exclude_left_endpoint and exclude_right_endpoint
+            exclude_left_endpoint
+            and exclude_right_endpoint
             and right_endpoint_indices[i] is not None
             and left_endpoint_indices[i] is not None
         ):

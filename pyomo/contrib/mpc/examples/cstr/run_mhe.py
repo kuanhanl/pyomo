@@ -16,14 +16,10 @@ from pyomo.dae import ContinuousSet
 from pyomo.contrib.mpc.examples.cstr.run_mpc import get_steady_state_data
 from pyomo.contrib.mpc.interfaces.var_linker import DynamicVarLinker
 from pyomo.contrib.mpc.examples.cstr.model import create_instance
-from pyomo.contrib.mpc.modeling.mhe_constructor import (
-    construct_measurement_variables_constraints,
-    construct_disturbed_model_constraints,
-    activate_disturbed_constraints_based_on_original_constraints,
-    get_cost_from_error_variables,
-)
 from pyomo.contrib.mpc.modeling.cost_expressions import (
-    get_tracking_cost_from_time_varying_setpoint,
+    get_penalty_from_time_varying_target,
+    get_parameters_from_variables,
+    get_constraint_residual_expression,
 )
 
 
@@ -78,45 +74,35 @@ def run_cstr_mhe(
     m_estimator.estimation_block = pyo.Block()
     esti_blo = m_estimator.estimation_block
 
-    measured_variables = [
-        pyo.Reference(m_estimator.conc[:, "A"])
-    ]
-    measurement_info = construct_measurement_variables_constraints(
-        m_estimator.sample_points,
-        measured_variables,
+    measured_variables = [pyo.Reference(m_estimator.conc[:, "A"])]
+
+    meas_set, measurements = get_parameters_from_variables(
+        measured_variables, m_estimator.sample_points
     )
-    esti_blo.measurement_set = measurement_info[0]
-    esti_blo.measurement_variables = measurement_info[1]
-    # Measurement variables should be fixed all the time
-    esti_blo.measurement_variables.fix()
-    esti_blo.measurement_error_variables = measurement_info[2]
-    esti_blo.measurement_constraints = measurement_info[3]
+    m_estimator.measurement_set = meas_set
+    m_estimator.measurements = measurements
 
     #
     # Construct disturbed model constraints
     #
-    flatten_conc_diff_equ = [
-        pyo.Reference(m_estimator.conc_diff_eqn[:,idx])
-        for idx in m_estimator.comp
+    relaxed_constraints = [
+        m_estimator.conc_diff_eqn[:, idx] for idx in m_estimator.comp
     ]
-    model_constraints_to_be_disturbed = flatten_conc_diff_equ
+    weight_data = {key: 10.0 for key in relaxed_constraints}
 
-    model_disturbance_info = construct_disturbed_model_constraints(
-        m_estimator.time,
-        m_estimator.sample_points,
-        model_constraints_to_be_disturbed,
+    resid_set, resid = estimator_interface.get_constraint_residual_expression(
+        relaxed_constraints, weight_data=weight_data,
     )
-    esti_blo.disturbance_set = model_disturbance_info[0]
-    esti_blo.disturbance_variables = model_disturbance_info[1]
-    esti_blo.disturbed_constraints = model_disturbance_info[2]
-
-    activate_disturbed_constraints_based_on_original_constraints(
-        m_estimator.time,
-        m_estimator.sample_points,
-        esti_blo.disturbance_variables,
-        model_constraints_to_be_disturbed,
-        esti_blo.disturbed_constraints,
+    m_estimator.disturbance_set = resid_set
+    m_estimator.residual_expr = resid
+    _, pwc_con = estimator_interface.get_piecewise_constant_constraints(
+        estimator_interface.slice_components(m_estimator.residual_expr),
+        sample_points,
     )
+    m_estimator.piecewise_constant_residual_constraints = pwc_con
+    # Deactivate original differential equations:
+    for con in relaxed_constraints:
+        con.deactivate()
 
     #
     # Make interface w.r.t. sample points
@@ -129,68 +115,20 @@ def run_cstr_mhe(
     # Construct least square objective to minimize measurement errors
     # and model disturbances
     #
-    # This flag toggles between two different objective formulations.
-    # I included it just to demonstrate that we can support both.
-    error_var_objective = True
-    if error_var_objective:
-        error_vars = [
-            pyo.Reference(esti_blo.measurement_error_variables[idx, :])
-            for idx in esti_blo.measurement_set
-        ]
-        # This cost function penalizes the square of the "error variables"
-        m_estimator.measurement_error_cost = get_cost_from_error_variables(
-            error_vars, m_estimator.sample_points
-        )
-    else:
-        from pyomo.common.collections import ComponentMap
-        measurement_map = ComponentMap(
-            (var, [
-                esti_blo.measurement_variables[i, t]
-                for t in m_estimator.sample_points
-            ])
-            for i, var in enumerate(measured_variables)
-        )
-        setpoint_data = mpc.TimeSeriesData(
-            measurement_map, m_estimator.sample_points
-        )
-        # This cost function penalizes the difference between measurable
-        # estimates and their corresponding measurements.
-        error_cost = get_tracking_cost_from_time_varying_setpoint(
-            measured_variables, m_estimator.sample_points, setpoint_data
-        )
-        m_estimator.measurement_error_cost = error_cost
-
-    #
-    # Construct disturbance cost expression
-    #
-    disturbance_vars = [
-        pyo.Reference(esti_blo.disturbance_variables[idx, :])
-        for idx in esti_blo.disturbance_set
-    ]
-
-    # We know what order we sent constraints to the disturbance constraint
-    # function, so we know which indices correspond to which equations
-    weights = {
-        esti_blo.disturbance_variables[0, :]: 10.0,
-        esti_blo.disturbance_variables[1, :]: 10.0,
-    }
-    m_estimator.model_disturbance_cost = get_cost_from_error_variables(
-        disturbance_vars, m_estimator.sample_points, weight_data=weights
+    _, cost = estimator_spt_interface.get_tracking_cost_from_target_trajectory(
+        m_estimator.measurements,
+        variables=measured_variables,
     )
-    ###
+    m_estimator.measurement_error_cost = cost
 
-    m_estimator.squred_error_disturbance_objective = pyo.Objective(
-        expr=(sum(m_estimator.measurement_error_cost.values()) +
-              sum(m_estimator.model_disturbance_cost.values())
-              )
-    )
-
-    #
-    # Initialize measurements to initial values of measured variables
-    #
-    for index, var in enumerate(measured_variables):
-        for spt in m_estimator.sample_points:
-            esti_blo.measurement_variables[index, spt].set_value(var[spt].value)
+    m_estimator.squred_error_disturbance_objective = pyo.Objective(expr=(
+        sum(m_estimator.measurement_error_cost.values())
+        + sum(
+            m_estimator.residual_expr[i, t]
+            for i in m_estimator.disturbance_set
+            for t in sample_points
+        )
+    ))
 
     #
     # Set up a model linker to send measurements to estimator to update
@@ -200,8 +138,8 @@ def run_cstr_mhe(
                                    for var in measured_variables
     ]
     flatten_measurements = [
-        pyo.Reference(esti_blo.measurement_variables[idx, :])
-        for idx in esti_blo.measurement_set
+        pyo.Reference(m_estimator.measurements[idx, :])
+        for idx in m_estimator.measurement_set
     ]
     measurement_linker = DynamicVarLinker(
         measured_variables_in_plant,
@@ -245,14 +183,14 @@ def run_cstr_mhe(
         # Load inputs into plant
         #
         current_control = control_inputs.get_data_at_time(time=sim_t0)
-        plant_interface.load_data_at_time(
+        plant_interface.load_data(
             current_control, non_initial_plant_time
         )
 
         #
         # Solve plant model to simulate
         #
-        res = solver.solve(m_plant, tee=tee)
+        res = solver.solve(m_plant, tee=False)
         pyo.assert_optimal_termination(res)
 
         #
@@ -279,7 +217,7 @@ def run_cstr_mhe(
         #
         # Load inputs into estimator
         #
-        estimator_interface.load_data_at_time(
+        estimator_interface.load_data(
             current_control, last_sample_time
         )
 
@@ -340,7 +278,7 @@ def plot_states_estimates_from_data(
         ax.legend()
 
         if show:
-            fig.show()
+            plt.show()
         if save:
             if fname is None:
                 fname = "state_estimate%s.png" % i
@@ -351,12 +289,13 @@ def main():
     init_steady_target = mpc.ScalarData({"flow_in[*]": 0.3})
     init_data = get_steady_state_data(init_steady_target, tee=False)
 
-    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=False)
+    m, sim_data, estimate_data = run_cstr_mhe(init_data, tee=True)
 
     plot_states_estimates_from_data(
         sim_data,
         estimate_data,
         [m.conc[:, "A"], m.conc[:, "B"]],
+        show=True,
     )
 
 

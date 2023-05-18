@@ -17,11 +17,14 @@ from . import envvar
 from .factory import Factory
 
 from .fileutils import (
-    Executable, Library,
+    Executable,
+    Library,
     # The following will be deprecated soon
-    register_executable, registered_executable, unregister_executable
+    register_executable,
+    registered_executable,
+    unregister_executable,
 )
-from . import config, dependencies, timing
+from . import config, dependencies, shutdown, timing
 from .deprecation import deprecated
 from .errors import DeveloperError
 from ._command import pyomo_command, get_pyomo_commands

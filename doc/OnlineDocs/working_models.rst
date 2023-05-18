@@ -184,7 +184,7 @@ The final lines in the outer for loop find a solution and display it:
 
    >>> results = opt.solve(instance, load_solutions=False) # doctest: +SKIP
    
-   This approach can be usefull if there is a concern that the solver
+   This approach can be useful if there is a concern that the solver
    did not terminate with an optimal solution. For example,
    
    >>> results = opt.solve(instance, load_solutions=False) # doctest: +SKIP
@@ -207,7 +207,7 @@ idea for users of an ``AbstractModel``:
 #. Create an ``AbstractModel`` (suppose it is called ``model``)
 #. Call ``model.create_instance()`` to create an instance (suppose it is called ``instance``)
 #. Solve ``instance``
-#. Change someting in ``instance``
+#. Change something in ``instance``
 #. Solve ``instance`` again
 
 .. note::
@@ -259,7 +259,7 @@ indexed), the assignment can be made using
    If the ``Param`` is not declared to be mutable, an error will occur if an assignment to it is attempted.
     
 For more information about access to Pyomo parameters, see the section
-in this document on ``Param`` access :ref:`ParmAccess`. Note that for
+in this document on ``Param`` access :ref:`ParamAccess`. Note that for
 concrete models, the model is the instance.
 
 Fixing Variables and Re-solving
@@ -340,7 +340,6 @@ of the objective function object. Here is a simple example:
    >>> print ("------------- extend obj --------------") # doctest: +SKIP
    >>> model.obj.expr += 10 * model.y
 
-   >>> opt = SolverFactory('cplex') # doctest: +SKIP
    >>> opt.solve(model) # doctest: +SKIP
    >>> model.pprint() # doctest: +SKIP
 
@@ -480,7 +479,7 @@ blocks) is as follows (this particular snippet assumes that instead of
 .. literalinclude:: tests/scripting/block_iter_example_compprintloop.spy
    :language: python
 
-.. _ParmAccess:
+.. _ParamAccess:
 
 Accessing Parameter Values
 --------------------------

@@ -33,14 +33,17 @@ from pyomo.contrib.mpc.data.dynamic_data_base import _is_iterable
 from pyomo.contrib.mpc.data.series_data import TimeSeriesData
 from pyomo.contrib.mpc.data.interval_data import IntervalData
 from pyomo.contrib.mpc.data.scalar_data import ScalarData
+from pyomo.contrib.mpc.data.convert import _process_to_dynamic_data
 from pyomo.contrib.mpc.modeling.cost_expressions import (
-    get_tracking_cost_from_constant_setpoint,
-    get_tracking_cost_from_time_varying_setpoint,
+    get_penalty_from_constant_target,
+    get_penalty_from_target,
+    get_penalty_from_time_varying_target,
     get_constraint_residual_expression,
 )
-from pyomo.contrib.mpc.modeling.input_constraints import (
+from pyomo.contrib.mpc.modeling.constraints import (
     get_piecewise_constant_constraints,
 )
+from pyomo.contrib.mpc.modeling.constraints import get_piecewise_constant_constraints
 
 iterable_scalars = (str, bytes)
 
@@ -130,7 +133,7 @@ class DynamicModelInterface(object):
 
     def get_data_at_time(self, time=None, include_expr=False):
         """
-        Gets data at a single time point or set of time point. Note that
+        Gets data at a single time point or set of time points. Note that
         the returned type changes depending on whether a scalar or iterable
         is supplied.
 
@@ -147,10 +150,12 @@ class DynamicModelInterface(object):
                 for cuid, var in zip(self._dae_var_cuids, self._dae_vars)
             }
             if include_expr:
-                data.update({
-                    cuid: [pyo_value(expr[t]) for t in time]
-                    for cuid, expr in zip(self._dae_expr_cuids, self._dae_expr)
-                })
+                data.update(
+                    {
+                        cuid: [pyo_value(expr[t]) for t in time]
+                        for cuid, expr in zip(self._dae_expr_cuids, self._dae_expr)
+                    }
+                )
             # Return a TimeSeriesData object
             return TimeSeriesData(data, time_list, time_set=self.time)
         else:
@@ -160,10 +165,12 @@ class DynamicModelInterface(object):
                 for cuid, var in zip(self._dae_var_cuids, self._dae_vars)
             }
             if include_expr:
-                data.update({
-                    cuid: pyo_value(expr[time])
-                    for cuid, expr in zip(self._dae_expr_cuids, self._dae_expr)
-                })
+                data.update(
+                    {
+                        cuid: pyo_value(expr[time])
+                        for cuid, expr in zip(self._dae_expr_cuids, self._dae_expr)
+                    }
+                )
             # Return ScalarData object
             return ScalarData(data)
 
@@ -197,104 +204,41 @@ class DynamicModelInterface(object):
         """
         if time_points is None:
             time_points = self.time
-        if isinstance(data, IntervalData):
-            # Set default arguments to load from interval
-            if prefer_left is None:
-                prefer_left = True
-            if exclude_left_endpoint is None:
-                exclude_left_endpoint = prefer_left
-            if exclude_right_endpoint is None:
-                exclude_right_endpoint = not prefer_left
+        data = _process_to_dynamic_data(data, time_set=self.time)
+
+        def _error_if_used(prefer_left, excl_left, excl_right, dtype):
+            if any(a is not None for a in (prefer_left, excl_left, excl_right)):
+                raise RuntimeError(
+                    "prefer_left, exclude_left_endpoint, and exclude_right_endpoint"
+                    " can only be set if data is IntervalData-compatible. Got"
+                    " prefer_left=%s, exclude_left_endpoint=%s, and"
+                    " exclude_right_endpoint=%s while loading data of type %s"
+                    % (prefer_left, excl_left, excl_right, dtype)
+                )
+
+        excl_left = exclude_left_endpoint
+        excl_right = exclude_right_endpoint
+        if isinstance(data, ScalarData):
+            # This covers the case of non-time-indexed variables
+            # as keys.
+            _error_if_used(prefer_left, excl_left, excl_right, type(data))
+            load_data_from_scalar(data, self.model, time_points)
+        elif isinstance(data, TimeSeriesData):
+            _error_if_used(prefer_left, excl_left, excl_right, type(data))
+            load_data_from_series(data, self.model, time_points, tolerance=tolerance)
+        elif isinstance(data, IntervalData):
+            prefer_left = True if prefer_left is None else prefer_left
+            excl_left = prefer_left if excl_left is None else excl_left
+            excl_right = (not prefer_left) if excl_right is None else excl_right
             load_data_from_interval(
                 data,
                 self.model,
                 time_points,
                 tolerance=tolerance,
                 prefer_left=prefer_left,
-                exclude_left_endpoint=exclude_left_endpoint,
-                exclude_right_endpoint=exclude_right_endpoint,
+                exclude_left_endpoint=excl_left,
+                exclude_right_endpoint=excl_right,
             )
-            return
-
-        # Make sure these arguments are not set for non-interval data.
-        if prefer_left is not None:
-            raise RuntimeError(
-                "Invalid argument prefer_left with data type %s"
-                % IntervalData
-            )
-        if exclude_left_endpoint is not None:
-            raise RuntimeError(
-                "Invalid argument exclude_left_endpoint with data type %s"
-                % IntervalData
-            )
-        if exclude_right_endpoint is not None:
-            raise RuntimeError(
-                "Invalid argument exclude_right_endpoint with data type %s"
-                % IntervalData
-            )
-
-        if isinstance(data, ScalarData):
-            load_data_from_scalar(data, self.model, time_points)
-        elif isinstance(data, TimeSeriesData):
-            load_data_from_series(data, self.model, time_points, tolerance=tolerance)
-        else:
-            # Attempt to load data by assuming it is a map from something
-            # find_component-compatible to values.
-            for cuid, vals in data.items():
-                var = self.model.find_component(cuid)
-                if var.is_indexed():
-                    # Assume we are indexed by time.
-                    if not _is_iterable(vals):
-                        # Load value into all time points
-                        for t in time_points:
-                            var[t].set_value(vals)
-                    else:
-                        # Load values into corresponding time points
-                        if len(time_points) != len(vals):
-                            raise RuntimeError(
-                                "Cannot load a different number of values"
-                                " than we have time points"
-                            )
-                        for i, t in enumerate(time_points):
-                            var[t].set_value(vals[i])
-                else:
-                    # Assume vals is a scalar
-                    var.set_value(vals)
-
-    def load_scalar_data(self, data):
-        """
-        Expects a dict mapping CUIDs (or strings) to values. Keys can
-        correspond to time-indexed or non-time-indexed variables.
-        """
-        #for cuid, val in data.items():
-        #    var = self.model.find_component(cuid)
-        #    var_iter = (var,) if not var.is_indexed() else var.values()
-        #    for var in var_iter:
-        #        var.set_value(val)
-        self.load_data(data)
-
-    def load_data_at_time(self, data, time_points=None):
-        """
-        Expects a dict mapping CUIDs to values, except this time
-        we assume that the variables are indexed. Should this be
-        combined with the above method (which could then check
-        if the variable is indexed).
-        """
-        #if time_points is None:
-        #    time_points = self.time
-        #else:
-        #    time_points = list(_to_iterable(time_points))
-        #if isinstance(data, ScalarData):
-        #    data = data.get_data()
-        #else:
-        #    # This processes keys in the incoming data dictionary
-        #    # so they don't necessarily have to be CUIDs.
-        #    data = ScalarData(data, time_set=self.time).get_data()
-        #for cuid, val in data.items():
-        #    var = self.model.find_component(cuid)
-        #    for t in time_points:
-        #        var[t].set_value(val)
-        self.load_data(data, time_points=time_points)
 
     def copy_values_at_time(self, source_time=None, target_time=None):
         """
@@ -313,12 +257,7 @@ class DynamicModelInterface(object):
             source_time = self.time.first()
         if target_time is None:
             target_time = self.time
-        copy_values_at_time(
-            self._dae_vars,
-            self._dae_vars,
-            source_time,
-            target_time,
-        )
+        copy_values_at_time(self._dae_vars, self._dae_vars, source_time, target_time)
 
     def shift_values_by_time(self, dt):
         """
@@ -355,6 +294,7 @@ class DynamicModelInterface(object):
             for i, t in enumerate(self.time):
                 var[t].set_value(new_values[i])
 
+
     def slice_components(self, components):
         if isinstance(components, Component):
             components = (components,)
@@ -367,53 +307,80 @@ class DynamicModelInterface(object):
             )
         return slices
 
-    def get_tracking_cost_from_constant_setpoint(
-        self, setpoint_data, time=None, variables=None, weight_data=None
+
+    def get_penalty_from_target(
+        self,
+        target_data,
+        time=None,
+        variables=None,
+        weight_data=None,
+        variable_set=None,
+        tolerance=None,
+        prefer_left=None,
     ):
-        """A method to get a quadratic tracking cost Expression
+        """A method to get a quadratic penalty expression from a provided
+        setpoint data structure
 
         Parameters
         ----------
-        setpoint_data: ScalarData
-            Holds setpoint values for variables
-        time: Iterable (optional)
+        target_data: ScalarData, TimeSeriesData, or IntervalData
+            Holds target values for variables
+        time: Set (optional)
             Points at which to apply the tracking cost. Default will use
             the model's time set.
         variables: List of Pyomo VarData (optional)
             Subset of variables supplied in setpoint_data to use in the
             tracking cost. Default is to use all variables supplied.
-        weight_data: ScalarData
-            Holds the weights to use in the tracking cost for each
-            variable
+        weight_data: ScalarData (optional)
+            Holds the weights to use in the tracking cost for each variable
+        variable_set: Set (optional)
+            A set indexing the list of provided variables, if one already
+            exists.
+        tolerance: Float (optional)
+            Tolerance for checking inclusion in an interval. Only may be
+            provided if IntervalData is provided for target_data. In this
+            case the default is 0.0.
+        prefer_left: Bool (optional)
+            Flag indicating whether the left end point of intervals should
+            be preferred over the right end point. Only may be provided if
+            IntervalData is provided for target_data. In this case the
+            default is False.
 
         Returns
         -------
-        Expression
-            Expression indexed by provided time (set or points) containing
-            the weighted tracking cost at each point.
+        Set, Expression
+            Set indexing the list of variables to be penalized, and
+            Expression indexed by this set and time. This Expression contains
+            the weighted tracking cost for each variable at each point in
+            time.
 
         """
-        if not isinstance(setpoint_data, ScalarData):
-            setpoint_data = ScalarData(setpoint_data)
         if time is None:
             time = self.time
+        target_data = _process_to_dynamic_data(target_data, time_set=self.time)
         if variables is None:
             # Use variables provided by the setpoint.
-            # NOTE: Nondeterministic order in Python < 3.7
+            # NOTE: Nondeterministic order in non-C Python < 3.7
+            # Should these data structures use OrderedDicts internally
+            # to enforce an order here?
             variables = [
-                self.model.find_component(key)
-                for key in setpoint_data.get_data().keys()
+                self.model.find_component(key) for key in target_data.get_data().keys()
             ]
         else:
             # Variables were provided. These could be anything. Process them
             # to get time-indexed variables on the model.
             variables = [
-                self.model.find_component(
-                    get_indexed_cuid(var, (self.time,))
-                ) for var in variables
+                self.model.find_component(get_indexed_cuid(var, (self.time,)))
+                for var in variables
             ]
-        return get_tracking_cost_from_constant_setpoint(
-            variables, time, setpoint_data, weight_data=weight_data
+        return get_penalty_from_target(
+            variables,
+            time,
+            target_data,
+            weight_data=weight_data,
+            variable_set=variable_set,
+            tolerance=tolerance,
+            prefer_left=prefer_left,
         )
 
     def get_tracking_cost_from_target_trajectory(
@@ -456,7 +423,7 @@ class DynamicModelInterface(object):
                     get_indexed_cuid(var, (self.time,))
                 ) for var in variables
             ]
-        return get_tracking_cost_from_time_varying_setpoint(
+        return get_penalty_from_time_varying_target(
             variables,
             time,
             target_data,
@@ -493,24 +460,17 @@ class DynamicModelInterface(object):
             equality constraints.
 
         """
-        cuids = [
-            get_indexed_cuid(var, (self.time,))
-            for var in variables
-        ]
+        cuids = [get_indexed_cuid(var, (self.time,)) for var in variables]
         variables = [self.model.find_component(cuid) for cuid in cuids]
         time_list = list(self.time)
         # Make sure that sample points exist (within tolerance) in the time
         # set.
         sample_point_indices = [
-            find_nearest_index(time_list, t, tolerance=tolerance)
-            for t in sample_points
+            find_nearest_index(time_list, t, tolerance=tolerance) for t in sample_points
         ]
         sample_points = [time_list[i] for i in sample_point_indices]
         return get_piecewise_constant_constraints(
-            variables,
-            self.time,
-            sample_points,
-            use_next=use_next,
+            variables, self.time, sample_points, use_next=use_next
         )
 
     def get_constraint_residual_expression(

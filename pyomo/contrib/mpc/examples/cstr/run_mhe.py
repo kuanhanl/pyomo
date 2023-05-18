@@ -17,7 +17,7 @@ from pyomo.contrib.mpc.examples.cstr.run_mpc import get_steady_state_data
 from pyomo.contrib.mpc.interfaces.var_linker import DynamicVarLinker
 from pyomo.contrib.mpc.examples.cstr.model import create_instance
 from pyomo.contrib.mpc.modeling.cost_expressions import (
-    get_tracking_cost_from_time_varying_setpoint,
+    get_penalty_from_time_varying_target,
     get_parameters_from_variables,
     get_constraint_residual_expression,
 )
@@ -115,7 +115,7 @@ def run_cstr_mhe(
     # Construct least square objective to minimize measurement errors
     # and model disturbances
     #
-    cost = estimator_spt_interface.get_tracking_cost_from_target_trajectory(
+    _, cost = estimator_spt_interface.get_tracking_cost_from_target_trajectory(
         m_estimator.measurements,
         variables=measured_variables,
     )
@@ -183,7 +183,7 @@ def run_cstr_mhe(
         # Load inputs into plant
         #
         current_control = control_inputs.get_data_at_time(time=sim_t0)
-        plant_interface.load_data_at_time(
+        plant_interface.load_data(
             current_control, non_initial_plant_time
         )
 
@@ -217,7 +217,7 @@ def run_cstr_mhe(
         #
         # Load inputs into estimator
         #
-        estimator_interface.load_data_at_time(
+        estimator_interface.load_data(
             current_control, last_sample_time
         )
 

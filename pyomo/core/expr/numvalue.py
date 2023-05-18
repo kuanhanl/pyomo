@@ -9,44 +9,117 @@
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
 
-__all__ = ('value', 'is_constant', 'is_fixed', 'is_variable_type',
-           'is_potentially_variable', 'NumericValue', 'ZeroConstant',
-           'native_numeric_types', 'native_types', 'nonpyomo_leaf_types',
-           'polynomial_degree')
+__all__ = (
+    'value',
+    'is_constant',
+    'is_fixed',
+    'is_variable_type',
+    'is_potentially_variable',
+    'NumericValue',
+    'ZeroConstant',
+    'native_numeric_types',
+    'native_types',
+    'nonpyomo_leaf_types',
+    'polynomial_degree',
+)
 
+import collections
 import sys
 import logging
 
 from pyomo.common.dependencies import numpy as np, numpy_available
+from pyomo.common.deprecation import (
+    deprecated,
+    deprecation_warning,
+    relocated_module_attribute,
+)
 from pyomo.common.errors import PyomoException
 from pyomo.core.expr.expr_common import (
-    _add, _sub, _mul, _div, _pow,
-    _neg, _abs, _radd,
-    _rsub, _rmul, _rdiv, _rpow,
-    _iadd, _isub, _imul, _idiv,
-    _ipow, _lt, _le, _eq
+    _add,
+    _sub,
+    _mul,
+    _div,
+    _pow,
+    _neg,
+    _abs,
+    _radd,
+    _rsub,
+    _rmul,
+    _rdiv,
+    _rpow,
+    _iadd,
+    _isub,
+    _imul,
+    _idiv,
+    _ipow,
+    _lt,
+    _le,
+    _eq,
+    ExpressionType,
 )
-# TODO: update imports of these objects to pull from numeric_types
+import pyomo.common.numeric_types as _numeric_types
+
+# TODO: update Pyomo to import these objects from common.numeric_types
+#   (and not from here)
 from pyomo.common.numeric_types import (
-    nonpyomo_leaf_types, native_types, native_numeric_types,
-    native_integer_types, native_boolean_types, native_logical_types,
-    RegisterNumericType, RegisterIntegerType, RegisterBooleanType,
+    nonpyomo_leaf_types,
+    native_types,
+    native_numeric_types,
+    native_integer_types,
+    native_logical_types,
     pyomo_constant_types,
 )
 from pyomo.core.pyomoobject import PyomoObject
 from pyomo.core.expr.expr_errors import TemplateExpressionError
 
+relocated_module_attribute(
+    'native_boolean_types',
+    'pyomo.common.numeric_types._native_boolean_types',
+    version='6.5.1.dev0',
+    f_globals=globals(),
+    msg="The native_boolean_types set will be removed in the future: the set "
+    "contains types that were convertible to bool, and not types that should "
+    "be treated as if they were bool (as was the case for the other "
+    "native_*_types sets).  Users likely should use native_logical_types.",
+)
+relocated_module_attribute(
+    'RegisterNumericType',
+    'pyomo.common.numeric_types.RegisterNumericType',
+    version='6.5.1.dev0',
+    f_globals=globals(),
+)
+relocated_module_attribute(
+    'RegisterIntegerType',
+    'pyomo.common.numeric_types.RegisterIntegerType',
+    version='6.5.1.dev0',
+    f_globals=globals(),
+)
+relocated_module_attribute(
+    'RegisterBooleanType',
+    'pyomo.common.numeric_types.RegisterBooleanType',
+    version='6.5.1.dev0',
+    f_globals=globals(),
+)
+
 logger = logging.getLogger('pyomo.core')
 
 
-def _generate_sum_expression(etype, _self, _other):
-    raise RuntimeError("incomplete import of Pyomo expression system")  #pragma: no cover
-def _generate_mul_expression(etype, _self, _other):
-    raise RuntimeError("incomplete import of Pyomo expression system")  #pragma: no cover
-def _generate_other_expression(etype, _self, _other):
-    raise RuntimeError("incomplete import of Pyomo expression system")  #pragma: no cover
+# Stub in the dispatchers
+def _incomplete_import(*args):
+    raise RuntimeError("incomplete import of Pyomo expression system")
+
+
+_add_dispatcher = collections.defaultdict(_incomplete_import)
+_mul_dispatcher = collections.defaultdict(_incomplete_import)
+_div_dispatcher = collections.defaultdict(_incomplete_import)
+_pow_dispatcher = collections.defaultdict(_incomplete_import)
+_neg_dispatcher = collections.defaultdict(_incomplete_import)
+_abs_dispatcher = collections.defaultdict(_incomplete_import)
+
+
 def _generate_relational_expression(etype, lhs, rhs):
-    raise RuntimeError("incomplete import of Pyomo expression system")  #pragma: no cover
+    raise RuntimeError("incomplete import of Pyomo expression system")
+
 
 ##------------------------------------------------------------------------
 ##
@@ -54,12 +127,14 @@ def _generate_relational_expression(etype, lhs, rhs):
 ##
 ##------------------------------------------------------------------------
 
+
 class NonNumericValue(object):
     """An object that contains a non-numeric value
 
     Constructor Arguments:
         value           The initial value.
     """
+
     __slots__ = ('value',)
 
     def __init__(self, value):
@@ -68,13 +143,6 @@ class NonNumericValue(object):
     def __str__(self):
         return str(self.value)
 
-    def __getstate__(self):
-        state = {}
-        state['value'] = getattr(self,'value')
-        return state
-
-    def __setstate__(self, state):
-        setattr(self, 'value', state['value'])
 
 nonpyomo_leaf_types.add(NonNumericValue)
 
@@ -86,7 +154,7 @@ def value(obj, exception=True):
 
     Args:
         obj: The argument to evaluate. If it is None, a
-            string, or any other primative numeric type,
+            string, or any other primitive numeric type,
             then this function simply returns the argument.
             Otherwise, if the argument is a NumericValue
             then the __call__ method is executed.
@@ -108,28 +176,32 @@ def value(obj, exception=True):
         # I'm commenting this out for now, but I think we should never expect
         # to see a numeric constant with value None.
         #
-        #if exception and obj.value is None:
+        # if exception and obj.value is None:
         #    raise ValueError(
         #        "No value for uninitialized NumericConstant object %s"
         #        % (obj.name,))
         return obj.value
     #
-    # Test if we have a duck types for Pyomo expressions
+    # Test if we have a duck typed Pyomo expression
     #
     try:
         obj.is_numeric_type()
     except AttributeError:
         #
-        # If not, then try to coerce this into a numeric constant.  If that
-        # works, then return the object
+        # TODO: Historically we checked for new *numeric* types and
+        # raised exceptions for anything else.  That is inconsistent
+        # with allowing native_types like None/str/bool to be returned
+        # from value().  We should revisit if that is worthwhile to do
+        # here.
         #
-        try:
-            check_if_numeric_type_and_cache(obj)
+        if check_if_numeric_type(obj):
             return obj
-        except:
+        else:
+            if not exception:
+                return None
             raise TypeError(
-                "Cannot evaluate object with unknown type: %s" %
-                (type(obj).__name__,))
+                "Cannot evaluate object with unknown type: %s" % obj.__class__.__name__
+            ) from None
     #
     # Evaluate the expression object
     #
@@ -141,8 +213,8 @@ def value(obj, exception=True):
             tmp = obj(exception=True)
             if tmp is None:
                 raise ValueError(
-                    "No value for uninitialized NumericValue object %s"
-                    % (obj.name,))
+                    "No value for uninitialized NumericValue object %s" % (obj.name,)
+                )
             return tmp
         except TemplateExpressionError:
             # Template expressions work by catching this error type. So
@@ -152,7 +224,8 @@ def value(obj, exception=True):
         except:
             logger.error(
                 "evaluating object as numeric value: %s\n    (object: %s)\n%s"
-                % (obj, type(obj), sys.exc_info()[1]))
+                % (obj, type(obj), sys.exc_info()[1])
+            )
             raise
     else:
         #
@@ -166,11 +239,6 @@ def is_constant(obj):
     A utility function that returns a boolean that indicates
     whether the object is a constant.
     """
-    # This method is rarely, if ever, called.  Plus, since the
-    # expression generation (and constraint generation) system converts
-    # everything to NumericValues, it is better (i.e., faster) to assume
-    # that the obj is a NumericValue
-    #
     # JDS: NB: I am not sure why we allow str to be a constant, but
     # since we have historically done so, we check for type membership
     # in native_types and not in native_numeric_types.
@@ -181,17 +249,19 @@ def is_constant(obj):
         return obj.is_constant()
     except AttributeError:
         pass
-    try:
-        # Now we need to confirm that we have an unknown numeric type
-        check_if_numeric_type_and_cache(obj)
-        # As this branch is only hit for previously unknown (to Pyomo)
-        # types that behave reasonably like numbers, we know they *must*
-        # be constant.
+    # Now we need to confirm that we have an unknown numeric type
+    #
+    # As this branch is only hit for previously unknown (to Pyomo)
+    # types that behave reasonably like numbers, we know they *must*
+    # be constant.
+    if check_if_numeric_type(obj):
         return True
-    except:
+    else:
         raise TypeError(
             "Cannot assess properties of object with unknown type: %s"
-            % (type(obj).__name__,))
+            % (type(obj).__name__,)
+        )
+
 
 def is_fixed(obj):
     """
@@ -208,17 +278,19 @@ def is_fixed(obj):
         return obj.is_fixed()
     except AttributeError:
         pass
-    try:
-        # Now we need to confirm that we have an unknown numeric type
-        check_if_numeric_type_and_cache(obj)
-        # As this branch is only hit for previously unknown (to Pyomo)
-        # types that behave reasonably like numbers, we know they *must*
-        # be fixed.
+    # Now we need to confirm that we have an unknown numeric type
+    #
+    # As this branch is only hit for previously unknown (to Pyomo)
+    # types that behave reasonably like numbers, we know they *must*
+    # be fixed.
+    if check_if_numeric_type(obj):
         return True
-    except:
+    else:
         raise TypeError(
             "Cannot assess properties of object with unknown type: %s"
-            % (type(obj).__name__,))
+            % (type(obj).__name__,)
+        )
+
 
 def is_variable_type(obj):
     """
@@ -232,6 +304,7 @@ def is_variable_type(obj):
     except AttributeError:
         return False
 
+
 def is_potentially_variable(obj):
     """
     A utility function that returns a boolean indicating
@@ -243,6 +316,7 @@ def is_potentially_variable(obj):
         return obj.is_potentially_variable()
     except AttributeError:
         return False
+
 
 def is_numeric_data(obj):
     """
@@ -261,16 +335,13 @@ def is_numeric_data(obj):
         return not obj.is_potentially_variable()
     except AttributeError:
         pass
-    try:
-        # Now we need to confirm that we have an unknown numeric type
-        check_if_numeric_type_and_cache(obj)
-        # As this branch is only hit for previously unknown (to Pyomo)
-        # types that behave reasonably like numbers, we know they *must*
-        # be numeric data (unless an exception is raised).
-        return True
-    except:
-        pass
-    return False
+    # Now we need to confirm that we have an unknown numeric type
+    #
+    # As this branch is only hit for previously unknown (to Pyomo)
+    # types that behave reasonably like numbers, we know they *must*
+    # be numeric data (unless an exception is raised).
+    return check_if_numeric_type(obj)
+
 
 def polynomial_degree(obj):
     """
@@ -283,22 +354,24 @@ def polynomial_degree(obj):
     elif obj.__class__ in native_types:
         raise TypeError(
             "Cannot evaluate the polynomial degree of a non-numeric type: %s"
-            % (type(obj).__name__,))
+            % (type(obj).__name__,)
+        )
     try:
         return obj.polynomial_degree()
     except AttributeError:
         pass
-    try:
-        # Now we need to confirm that we have an unknown numeric type
-        check_if_numeric_type_and_cache(obj)
+    # Now we need to confirm that we have an unknown numeric type
+    if check_if_numeric_type(obj):
         # As this branch is only hit for previously unknown (to Pyomo)
         # types that behave reasonably like numbers, we know they *must*
         # be a numeric constant.
         return 0
-    except:
+    else:
         raise TypeError(
             "Cannot assess properties of object with unknown type: %s"
-            % (type(obj).__name__,))
+            % (type(obj).__name__,)
+        )
+
 
 #
 # It is very common to have only a few constants in a model, but those
@@ -315,6 +388,7 @@ def polynomial_degree(obj):
 #   INT, FLOAT and LONG values sometimes hash the same.
 #
 _KnownConstants = {}
+
 
 def as_numeric(obj):
     """
@@ -361,8 +435,13 @@ def as_numeric(obj):
         # is worth the extra cost.
         #
         if len(_KnownConstants) < 1024:
-            _KnownConstants[obj] = retval
-            return retval
+            # obj may (or may not) be hashable, so we need this try
+            # block so that things proceed normally for non-hashable
+            # "numeric" types
+            try:
+                _KnownConstants[obj] = retval
+            except:
+                pass
         #
         return retval
     #
@@ -371,6 +450,14 @@ def as_numeric(obj):
     try:
         if obj.is_numeric_type():
             return obj
+        elif obj.is_expression_type(ExpressionType.RELATIONAL):
+            deprecation_warning(
+                "returning a relational expression from as_numeric().  "
+                "Relational expressions are no longer numeric types.  "
+                "In the future this will raise a TypeError.",
+                version='6.4.3',
+            )
+            return obj
         else:
             try:
                 _name = obj.name
@@ -378,83 +465,94 @@ def as_numeric(obj):
                 _name = str(obj)
             raise TypeError(
                 "The '%s' object '%s' is not a valid type for Pyomo "
-                "numeric expressions" % (type(obj).__name__, _name))
+                "numeric expressions" % (type(obj).__name__, _name)
+            )
 
     except AttributeError:
         pass
     #
-    # Test if the object looks like a number.  If so, register that type with a
-    # warning.
+    # Test if the object looks like a number.  If so, re-call as_numeric
+    # (this type will have been added to native_numeric_types).
     #
-    try:
-        return check_if_numeric_type_and_cache(obj)
-    except:
-        pass
+    if check_if_numeric_type(obj):
+        return as_numeric(obj)
     #
     # Generate errors
     #
     if obj.__class__ in native_types:
-        raise TypeError("%s values ('%s') are not allowed in Pyomo "
-                        "numeric expressions" % (type(obj).__name__, str(obj)))
+        raise TypeError(
+            "%s values ('%s') are not allowed in Pyomo "
+            "numeric expressions" % (type(obj).__name__, str(obj))
+        )
     raise TypeError(
         "Cannot treat the value '%s' as a numeric value because it has "
-        "unknown type '%s'" % (str(obj), type(obj).__name__))
+        "unknown type '%s'" % (str(obj), type(obj).__name__)
+    )
 
 
+def check_if_numeric_type(obj):
+    """Test if the argument behaves like a numeric type.
+
+    We check for "numeric types" by checking if we can add zero to it
+    without changing the object's type.  If that works, then we register
+    the type in native_numeric_types.
+
+    """
+    obj_class = obj.__class__
+    # Do not re-evaluate known native types
+    if obj_class in native_types:
+        return obj_class in native_numeric_types
+
+    try:
+        obj_plus_0 = obj + 0
+        obj_p0_class = obj_plus_0.__class__
+        # ensure that the object is comparable to 0 in a meaningful way
+        # (among other things, this prevents numpy.ndarray objects from
+        # being added to native_numeric_types)
+        if not ((obj < 0) ^ (obj >= 0)):
+            return False
+        # Native types *must* be hashable
+        hash(obj)
+    except:
+        return False
+    if obj_p0_class is obj_class or obj_p0_class in native_numeric_types:
+        #
+        # If we get here, this is a reasonably well-behaving
+        # numeric type: add it to the native numeric types
+        # so that future lookups will be faster.
+        #
+        _numeric_types.RegisterNumericType(obj_class)
+        #
+        # Generate a warning, since Pyomo's management of third-party
+        # numeric types is more robust when registering explicitly.
+        #
+        logger.warning(
+            f"""Dynamically registering the following numeric type:
+    {obj_class.__module__}.{obj_class.__name__}
+Dynamic registration is supported for convenience, but there are known
+limitations to this approach.  We recommend explicitly registering
+numeric types using RegisterNumericType() or RegisterIntegerType()."""
+        )
+        return True
+    else:
+        return False
+
+
+@deprecated(
+    "check_if_numeric_type_and_cache() has been deprecated in "
+    "favor of just calling as_numeric()",
+    version='6.4.3',
+)
 def check_if_numeric_type_and_cache(obj):
     """Test if the argument is a numeric type by checking if we can add
     zero to it.  If that works, then we cache the value and return a
     NumericConstant object.
 
     """
-    obj_class = obj.__class__
-    if obj_class is (obj + 0).__class__:
-        #
-        # Coerce the value to a float, if possible
-        #
-        try:
-            obj = float(obj)
-        except:
-            pass
-        #
-        # obj may (or may not) be hashable, so we need this try
-        # block so that things proceed normally for non-hashable
-        # "numeric" types
-        #
-        retval = NumericConstant(obj)
-        try:
-            #
-            # Create the numeric constant and add to the
-            # list of known constants.
-            #
-            # Note: we don't worry about the size of the
-            # cache here, since we need to confirm that the
-            # object is hashable.
-            #
-            _KnownConstants[obj] = retval
-            #
-            # If we get here, this is a reasonably well-behaving
-            # numeric type: add it to the native numeric types
-            # so that future lookups will be faster.
-            #
-            native_numeric_types.add(obj_class)
-            native_types.add(obj_class)
-            nonpyomo_leaf_types.add(obj_class)
-            #
-            # Generate a warning, since Pyomo's management of third-party
-            # numeric types is more robust when registering explicitly.
-            #
-            logger.warning(
-                """Dynamically registering the following numeric type:
-    %s
-Dynamic registration is supported for convenience, but there are known
-limitations to this approach.  We recommend explicitly registering
-numeric types using the following functions:
-    RegisterNumericType(), RegisterIntegerType(), RegisterBooleanType()."""
-                % (obj_class.__name__,))
-        except:
-            pass
-        return retval
+    if check_if_numeric_type(obj):
+        return as_numeric(obj)
+    else:
+        return obj
 
 
 class NumericValue(PyomoObject):
@@ -467,61 +565,13 @@ class NumericValue(PyomoObject):
     # This is required because we define __eq__
     __hash__ = None
 
-    def __getstate__(self):
-        """
-        Prepare a picklable state of this instance for pickling.
-
-        Nominally, __getstate__() should execute the following::
-
-            state = super(Class, self).__getstate__()
-            for i in Class.__slots__:
-                state[i] = getattr(self,i)
-            return state
-
-        However, in this case, the (nominal) parent class is 'object',
-        and object does not implement __getstate__.  So, we will
-        check to make sure that there is a base __getstate__() to
-        call.  You might think that there is nothing to check, but
-        multiple inheritance could mean that another class got stuck
-        between this class and "object" in the MRO.
-
-        Further, since there are actually no slots defined here, the
-        real question is to either return an empty dict or the
-        parent's dict.
-        """
-        _base = super(NumericValue, self)
-        if hasattr(_base, '__getstate__'):
-            return _base.__getstate__()
-        else:
-            return {}
-
-    def __setstate__(self, state):
-        """
-        Restore a pickled state into this instance
-
-        Our model for setstate is for derived classes to modify
-        the state dictionary as control passes up the inheritance
-        hierarchy (using super() calls).  All assignment of state ->
-        object attributes is handled at the last class before 'object',
-        which may -- or may not (thanks to MRO) -- be here.
-        """
-        _base = super(NumericValue, self)
-        if hasattr(_base, '__setstate__'):
-            return _base.__setstate__(state)
-        else:
-            for key, val in state.items():
-                # Note: per the Python data model docs, we explicitly
-                # set the attribute using object.__setattr__() instead
-                # of setting self.__dict__[key] = val.
-                object.__setattr__(self, key, val)
-
     def getname(self, fully_qualified=False, name_buffer=None):
         """
         If this is a component, return the component's name on the owning
         block; otherwise return the value converted to a string
         """
         _base = super(NumericValue, self)
-        if hasattr(_base,'getname'):
+        if hasattr(_base, 'getname'):
             return _base.getname(fully_qualified, name_buffer)
         else:
             return str(type(self))
@@ -550,6 +600,11 @@ class NumericValue(PyomoObject):
         """Return True if variables can appear in this expression"""
         return False
 
+    @deprecated(
+        "is_relational() is deprecated in favor of "
+        "is_expression_type(ExpressionType.RELATIONAL)",
+        version='6.4.3',
+    )
     def is_relational(self):
         """
         Return True if this numeric value represents a relational expression.
@@ -600,14 +655,17 @@ class NumericValue(PyomoObject):
         # __bool__ is not defined.
         if self.is_constant():
             return bool(self())
-        raise PyomoException("""
+        raise PyomoException(
+            """
 Cannot convert non-constant Pyomo numeric value (%s) to bool.
 This error is usually caused by using a Var, unit, or mutable Param in a
 Boolean context such as an "if" statement. For example,
     >>> m.x = Var()
     >>> if not m.x:
     ...     pass
-would cause this exception.""".strip() % (self,))
+would cause this exception.""".strip()
+            % (self,)
+        )
 
     def __float__(self):
         """Coerce the value to a floating point
@@ -622,13 +680,16 @@ would cause this exception.""".strip() % (self,))
         """
         if self.is_constant():
             return float(self())
-        raise TypeError("""
+        raise TypeError(
+            """
 Implicit conversion of Pyomo numeric value (%s) to float is disabled.
 This error is often the result of using Pyomo components as arguments to
 one of the Python built-in math module functions when defining
 expressions. Avoid this error by using Pyomo-provided math functions or
 explicitly resolving the numeric value using the Pyomo value() function.
-""".strip() % (self,))
+""".strip()
+            % (self,)
+        )
 
     def __int__(self):
         """Coerce the value to an integer
@@ -643,15 +704,18 @@ explicitly resolving the numeric value using the Pyomo value() function.
         """
         if self.is_constant():
             return int(self())
-        raise TypeError("""
+        raise TypeError(
+            """
 Implicit conversion of Pyomo numeric value (%s) to int is disabled.
 This error is often the result of using Pyomo components as arguments to
 one of the Python built-in math module functions when defining
 expressions. Avoid this error by using Pyomo-provided math functions or
 explicitly resolving the numeric value using the Pyomo value() function.
-""".strip() % (self,))
+""".strip()
+            % (self,)
+        )
 
-    def __lt__(self,other):
+    def __lt__(self, other):
         """
         Less than operator
 
@@ -662,7 +726,7 @@ explicitly resolving the numeric value using the Pyomo value() function.
         """
         return _generate_relational_expression(_lt, self, other)
 
-    def __gt__(self,other):
+    def __gt__(self, other):
         """
         Greater than operator
 
@@ -673,7 +737,7 @@ explicitly resolving the numeric value using the Pyomo value() function.
         """
         return _generate_relational_expression(_lt, other, self)
 
-    def __le__(self,other):
+    def __le__(self, other):
         """
         Less than or equal operator
 
@@ -684,7 +748,7 @@ explicitly resolving the numeric value using the Pyomo value() function.
         """
         return _generate_relational_expression(_le, self, other)
 
-    def __ge__(self,other):
+    def __ge__(self, other):
         """
         Greater than or equal operator
 
@@ -695,7 +759,7 @@ explicitly resolving the numeric value using the Pyomo value() function.
         """
         return _generate_relational_expression(_le, other, self)
 
-    def __eq__(self,other):
+    def __eq__(self, other):
         """
         Equal to operator
 
@@ -705,7 +769,7 @@ explicitly resolving the numeric value using the Pyomo value() function.
         """
         return _generate_relational_expression(_eq, self, other)
 
-    def __add__(self,other):
+    def __add__(self, other):
         """
         Binary addition
 
@@ -713,9 +777,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self + other
         """
-        return _generate_sum_expression(_add,self,other)
+        return _add_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __sub__(self,other):
+    def __sub__(self, other):
         """
         Binary subtraction
 
@@ -723,9 +787,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self - other
         """
-        return _generate_sum_expression(_sub,self,other)
+        return self.__add__(-other)
 
-    def __mul__(self,other):
+    def __mul__(self, other):
         """
         Binary multiplication
 
@@ -733,9 +797,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self * other
         """
-        return _generate_mul_expression(_mul,self,other)
+        return _mul_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __div__(self,other):
+    def __div__(self, other):
         """
         Binary division
 
@@ -743,9 +807,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self / other
         """
-        return _generate_mul_expression(_div,self,other)
+        return _div_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __truediv__(self,other):
+    def __truediv__(self, other):
         """
         Binary division (when __future__.division is in effect)
 
@@ -753,9 +817,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self / other
         """
-        return _generate_mul_expression(_div,self,other)
+        return _div_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __pow__(self,other):
+    def __pow__(self, other):
         """
         Binary power
 
@@ -763,9 +827,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self ** other
         """
-        return _generate_other_expression(_pow,self,other)
+        return _pow_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __radd__(self,other):
+    def __radd__(self, other):
         """
         Binary addition
 
@@ -773,9 +837,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             other + self
         """
-        return _generate_sum_expression(_radd,self,other)
+        return _add_dispatcher[other.__class__, self.__class__](other, self)
 
-    def __rsub__(self,other):
+    def __rsub__(self, other):
         """
         Binary subtraction
 
@@ -783,9 +847,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             other - self
         """
-        return _generate_sum_expression(_rsub,self,other)
+        return other + (-self)
 
-    def __rmul__(self,other):
+    def __rmul__(self, other):
         """
         Binary multiplication
 
@@ -795,18 +859,18 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
         when other is not a :class:`NumericValue <pyomo.core.expr.numvalue.NumericValue>` object.
         """
-        return _generate_mul_expression(_rmul,self,other)
+        return _mul_dispatcher[other.__class__, self.__class__](other, self)
 
-    def __rdiv__(self,other):
+    def __rdiv__(self, other):
         """Binary division
 
         This method is called when Python processes the statement::
 
             other / self
         """
-        return _generate_mul_expression(_rdiv,self,other)
+        return _div_dispatcher[other.__class__, self.__class__](other, self)
 
-    def __rtruediv__(self,other):
+    def __rtruediv__(self, other):
         """
         Binary division (when __future__.division is in effect)
 
@@ -814,9 +878,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             other / self
         """
-        return _generate_mul_expression(_rdiv,self,other)
+        return _div_dispatcher[other.__class__, self.__class__](other, self)
 
-    def __rpow__(self,other):
+    def __rpow__(self, other):
         """
         Binary power
 
@@ -824,9 +888,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             other ** self
         """
-        return _generate_other_expression(_rpow,self,other)
+        return _pow_dispatcher[other.__class__, self.__class__](other, self)
 
-    def __iadd__(self,other):
+    def __iadd__(self, other):
         """
         Binary addition
 
@@ -834,9 +898,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self += other
         """
-        return _generate_sum_expression(_iadd,self,other)
+        return _add_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __isub__(self,other):
+    def __isub__(self, other):
         """
         Binary subtraction
 
@@ -844,9 +908,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self -= other
         """
-        return _generate_sum_expression(_isub,self,other)
+        return self.__iadd__(-other)
 
-    def __imul__(self,other):
+    def __imul__(self, other):
         """
         Binary multiplication
 
@@ -854,9 +918,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self *= other
         """
-        return _generate_mul_expression(_imul,self,other)
+        return _mul_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __idiv__(self,other):
+    def __idiv__(self, other):
         """
         Binary division
 
@@ -864,9 +928,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self /= other
         """
-        return _generate_mul_expression(_idiv,self,other)
+        return _div_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __itruediv__(self,other):
+    def __itruediv__(self, other):
         """
         Binary division (when __future__.division is in effect)
 
@@ -874,9 +938,9 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self /= other
         """
-        return _generate_mul_expression(_idiv,self,other)
+        return _div_dispatcher[self.__class__, other.__class__](self, other)
 
-    def __ipow__(self,other):
+    def __ipow__(self, other):
         """
         Binary power
 
@@ -884,7 +948,7 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             self **= other
         """
-        return _generate_other_expression(_ipow,self,other)
+        return _pow_dispatcher[self.__class__, other.__class__](self, other)
 
     def __neg__(self):
         """
@@ -894,7 +958,7 @@ explicitly resolving the numeric value using the Pyomo value() function.
 
             - self
         """
-        return _generate_sum_expression(_neg, self, None)
+        return _neg_dispatcher[self.__class__](self)
 
     def __pos__(self):
         """
@@ -907,20 +971,18 @@ explicitly resolving the numeric value using the Pyomo value() function.
         return self
 
     def __abs__(self):
-        """ Absolute value
+        """Absolute value
 
         This method is called when Python processes the statement::
 
             abs(self)
         """
-        return _generate_other_expression(_abs,self, None)
+        return _abs_dispatcher[self.__class__](self)
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
-        return NumericNDArray.__array_ufunc__(
-            None, ufunc, method, *inputs, **kwargs)
+        return NumericNDArray.__array_ufunc__(None, ufunc, method, *inputs, **kwargs)
 
-    def to_string(self, verbose=None, labeler=None, smap=None,
-                  compute_values=False):
+    def to_string(self, verbose=None, labeler=None, smap=None, compute_values=False):
         """Return a string representation of the expression tree.
 
         Args:
@@ -967,12 +1029,6 @@ class NumericConstant(NumericValue):
     def __init__(self, value):
         self.value = value
 
-    def __getstate__(self):
-        state = super(NumericConstant, self).__getstate__()
-        for i in NumericConstant.__slots__:
-            state[i] = getattr(self,i)
-        return state
-
     def is_constant(self):
         return True
 
@@ -990,7 +1046,7 @@ class NumericConstant(NumericValue):
         return self.value
 
     def pprint(self, ostream=None, verbose=False):
-        if ostream is None:         #pragma:nocover
+        if ostream is None:  # pragma:nocover
             ostream = sys.stdout
         ostream.write(str(self))
 
@@ -1000,10 +1056,13 @@ pyomo_constant_types.add(NumericConstant)
 # We use as_numeric() so that the constant is also in the cache
 ZeroConstant = as_numeric(0)
 
+
 #
 # Note: the "if numpy_available" in the class definition also ensures
 # that the numpy types are registered if numpy is in fact available
 #
+
+
 class NumericNDArray(np.ndarray if numpy_available else object):
     """An ndarray subclass that stores Pyomo numeric expressions"""
 

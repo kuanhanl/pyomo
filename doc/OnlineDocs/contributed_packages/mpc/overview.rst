@@ -83,12 +83,13 @@ we may want to store or serialize this data in a form that is agnostic
 of any particular ``ConcreteModel`` object.
 We can now generate our data structure as:
 
-.. code:: python
+.. doctest::
 
    >>> data = {
    ...    pyo.ComponentUID(var.referent): list(var[:].value)
    ...    for var in dae_vars
    ... }
+   >>> data
    {var[*,A]: [1.0, 1.0, 1.0], var[*,B]: [1.0, 1.0, 1.0]}
 
 This is the structure of the underlying dictionary in the ``TimeSeriesData``
@@ -151,7 +152,7 @@ as initial conditions. This can be done as follows:
 
    >>> # Load data into initial time point of m1
    >>> t0 = m1.time.first()
-   >>> m1_helper.load_data_at_time(tf_data, t0)
+   >>> m1_helper.load_data(tf_data, time_points=t0)
 
    >>> # Get TimeSeriesData object
    >>> series_data = m1_helper.get_data_at_time()
@@ -172,10 +173,7 @@ a tracking cost expression.
 .. doctest::
 
    >>> import pyomo.environ as pyo
-   >>> from pyomo.contrib.mpc import (
-   ...     ScalarData,
-   ...     DynamicModelInterface,
-   ... )
+   >>> from pyomo.contrib.mpc import DynamicModelInterface
 
    >>> m = pyo.ConcreteModel()
    >>> m.time = pyo.Set(initialize=[0, 1, 2])
@@ -186,19 +184,20 @@ a tracking cost expression.
    >>> helper = DynamicModelInterface(m, m.time)
 
    >>> # Construct data structure for setpoints
-   >>> setpoint = ScalarData(
-   ...     {m.var[:, "A"]: 0.5, m.var[:, "B"]: 2.0}
-   ... )
-   >>> tr_cost = helper.get_tracking_cost_from_constant_setpoint(
-   ...     setpoint
-   ... )
+   >>> setpoint = {m.var[:, "A"]: 0.5, m.var[:, "B"]: 2.0}
+   >>> var_set, tr_cost = helper.get_penalty_from_target(setpoint)
+   >>> m.setpoint_idx = var_set
    >>> m.tracking_cost = tr_cost
    >>> m.tracking_cost.pprint()
-   tracking_cost : Size=3, Index=time
-       Key : Expression
-         0 : (var[0,A] - 0.5)**2 + (var[0,B] - 2.0)**2
-         1 : (var[1,A] - 0.5)**2 + (var[1,B] - 2.0)**2
-         2 : (var[2,A] - 0.5)**2 + (var[2,B] - 2.0)**2
+   tracking_cost : Size=6, Index=tracking_cost_index
+       Key    : Expression
+       (0, 0) : (var[0,A] - 0.5)**2
+       (0, 1) : (var[1,A] - 0.5)**2
+       (0, 2) : (var[2,A] - 0.5)**2
+       (1, 0) : (var[0,B] - 2.0)**2
+       (1, 1) : (var[1,B] - 2.0)**2
+       (1, 2) : (var[2,B] - 2.0)**2
+
 
 These methods will hopefully allow developers to declutter dynamic optimization
 scripts and pay more attention to the application of the optimization problem

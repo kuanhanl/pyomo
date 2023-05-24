@@ -185,7 +185,7 @@ def run_cstr_mhe(
         #
         # Solve plant model to simulate
         #
-        res = solver.solve(m_plant, tee=True)
+        res = solver.solve(m_plant, tee=False)
         pyo.assert_optimal_termination(res)
 
         #
